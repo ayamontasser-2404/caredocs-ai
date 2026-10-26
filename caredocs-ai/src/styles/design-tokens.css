@@ -1,0 +1,48 @@
+:root {
+  --color-primary: #2563EB;
+  --color-primary-light: #EFF6FF;
+  --color-background: #F7F9FC;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #172033;
+  --color-text-secondary: #64748B;
+  --color-border: #E2E8F0;
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-error: #DC2626;
+
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-48: 48px;
+
+  --font-family-base: Inter, sans-serif;
+
+  --font-size-product-name: 20px;
+  --font-size-page-title: 24px;
+  --font-size-section-heading: 16px;
+  --font-size-body: 14px;
+  --font-size-supporting: 12px;
+  --font-size-button: 14px;
+
+  --line-height-product-name: 28px;
+  --line-height-page-title: 32px;
+  --line-height-section-heading: 24px;
+  --line-height-body: 20px;
+  --line-height-supporting: 16px;
+  --line-height-button: 20px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-badge: 6px;
+  --border-width-default: 1px;
+
+  --shadow-card: 0 1px 2px color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  --layout-sidebar-width: 260px;
+  --layout-review-width: 420px;
+}
