@@ -2,6 +2,8 @@
  * Prototype checklist for demonstrating document-review behavior.
  * These are illustrative software checks, not an official clinical standard.
  */
+import type { ReviewChecklistItem } from "../types/review.ts";
+
 export const reviewChecklist = [
   {
     id: "patient-identity-consistency",
@@ -35,4 +37,4 @@ export const reviewChecklist = [
     category: "documentation",
     enabled: true,
   },
-] as const;
+] as const satisfies readonly ReviewChecklistItem[];

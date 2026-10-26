@@ -1,7 +1,10 @@
 /**
  * Expected findings for the synthetic CareDocs AI demo scenario.
  * These are acceptance-test fixtures, not results from an AI model.
+ * Completeness and documentation findings are review prompts, not confirmed clinical errors.
  */
+import type { ReviewFinding } from "../types/review.ts";
+
 export const expectedFindings = [
   {
     id: "FIND-001",
@@ -86,4 +89,4 @@ export const expectedFindings = [
       },
     ],
   },
-] as const;
+] as const satisfies readonly ReviewFinding[];

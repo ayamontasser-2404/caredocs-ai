@@ -2,6 +2,8 @@
  * Synthetic German hospital discharge letter for CareDocs AI.
  * Demo data only: fictional identity and clinical content; not for clinical use.
  */
+import type { HealthcareDocument } from "../types/document.ts";
+
 export const sampleDischargeLetter = {
   id: "DOC-2026-001",
   type: "discharge-letter",
@@ -65,6 +67,7 @@ export const sampleDischargeLetter = {
       instructions: "Dauertherapie",
     },
   ],
+  synthetic: true,
   demoNotice:
     "Synthetisches Beispieldokument. Nicht für medizinische Entscheidungen verwenden.",
-} as const;
+} as const satisfies HealthcareDocument;

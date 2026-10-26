@@ -3,6 +3,8 @@
  * Includes intentional differences from sampleDischargeLetter for testing.
  * Demo data only: not for clinical use.
  */
+import type { HealthcareDocument } from "../types/document.ts";
+
 export const sampleMedicationPlan = {
   id: "DOC-2026-002",
   type: "medication-plan",
@@ -44,6 +46,7 @@ export const sampleMedicationPlan = {
       instructions: "Morgens",
     },
   ],
+  synthetic: true,
   demoNotice:
     "Synthetisches Beispieldokument. Nicht für medizinische Entscheidungen verwenden.",
-} as const;
+} as const satisfies HealthcareDocument;
