@@ -1,24 +1,251 @@
-import { FileText } from 'lucide-react'
+import { useEffect, type ReactNode } from 'react'
+import type { HealthcareDocument, MedicationEntry } from '../../types/document.ts'
+import type { FindingEvidence } from '../../types/review.ts'
+import { sectionElementId } from './section-target.ts'
 
-export function DocumentSurface() {
+const documentTypeLabel = {
+  'discharge-letter': 'Discharge letter',
+  'medication-plan': 'Medication plan',
+} as const
+
+interface DocumentSurfaceProps {
+  documents: readonly HealthcareDocument[]
+  activeEvidence: FindingEvidence | null
+}
+
+export function DocumentSurface({ documents, activeEvidence }: DocumentSurfaceProps) {
+  useEffect(() => {
+    if (!activeEvidence) {
+      return
+    }
+
+    const target = document.getElementById(
+      sectionElementId(activeEvidence.documentId, activeEvidence.sectionId),
+    )
+
+    if (!(target instanceof HTMLElement)) {
+      return
+    }
+
+    target.scrollIntoView({ block: 'nearest' })
+    target.focus({ preventScroll: true })
+  }, [activeEvidence])
+
+  if (documents.length === 0) {
+    return null
+  }
+
   return (
-    <main className="document-surface" id="document-surface">
+    <section className="document-surface" id="document-surface" aria-labelledby="source-documents-title">
       <header className="document-surface__header">
-        <h1 className="document-surface__title">Document</h1>
+        <h2 className="document-surface__heading" id="source-documents-title">
+          Source documents
+        </h2>
         <p className="document-surface__lead">
-          The source document for review is shown here.
+          Excerpts in the findings can be checked against these sections.
         </p>
       </header>
-      <article className="document-sheet" aria-label="Document canvas">
-        <span className="document-sheet__icon" aria-hidden="true">
-          <FileText size={22} strokeWidth={1.75} />
-        </span>
-        <h2 className="document-sheet__title">Document canvas</h2>
-        <p className="document-sheet__text">
-          No file is open. This surface stays clear until a document is ready
-          for review.
-        </p>
-      </article>
-    </main>
+      <p className="document-surface__notice">{documents[0]?.demoNotice}</p>
+      {documents.map((item) => (
+        <article className="document-record" key={item.id} aria-labelledby={`${item.id}-title`}>
+          <header className="document-record__header">
+            <p className="document-record__kicker">{documentTypeLabel[item.type]}</p>
+            <h3 className="document-record__title" id={`${item.id}-title`}>
+              {item.title}
+            </h3>
+            <p className="document-record__meta">
+              {item.filename} · {item.createdAt}
+            </p>
+          </header>
+          {item.sections.some((section) => section.id === 'patient') ? null : (
+            <PatientBlock document={item} activeEvidence={activeEvidence} />
+          )}
+          {item.sections.map((section) => (
+            <SectionBlock
+              key={section.id}
+              document={item}
+              sectionId={section.id}
+              title={section.title}
+              activeEvidence={activeEvidence}
+            >
+              {section.id === 'patient' ? (
+                <PatientFacts document={item} activeEvidence={activeEvidence} />
+              ) : null}
+              <p>{markedText(section.content, excerptFor(item, section.id, activeEvidence))}</p>
+              {section.id === 'medication' ? (
+                <MedicationList document={item} activeEvidence={activeEvidence} />
+              ) : null}
+            </SectionBlock>
+          ))}
+          {item.medications.length > 0 &&
+          !item.sections.some((section) => section.id === 'medication') ? (
+            <SectionBlock
+              document={item}
+              sectionId="medication"
+              title="Medication"
+              activeEvidence={activeEvidence}
+            >
+              <MedicationList document={item} activeEvidence={activeEvidence} />
+            </SectionBlock>
+          ) : null}
+        </article>
+      ))}
+    </section>
+  )
+}
+
+function PatientBlock({
+  document: source,
+  activeEvidence,
+}: {
+  document: HealthcareDocument
+  activeEvidence: FindingEvidence | null
+}) {
+  return (
+    <SectionBlock
+      document={source}
+      sectionId="patient"
+      title="Patient identity"
+      activeEvidence={activeEvidence}
+    >
+      <PatientFacts document={source} activeEvidence={activeEvidence} />
+    </SectionBlock>
+  )
+}
+
+function PatientFacts({
+  document: source,
+  activeEvidence,
+}: {
+  document: HealthcareDocument
+  activeEvidence: FindingEvidence | null
+}) {
+  const excerpt = excerptFor(source, 'patient', activeEvidence)
+
+  return (
+    <dl className="document-facts">
+      <div>
+        <dt>Patient ID</dt>
+        <dd>{markedText(source.patient.patientId, excerpt)}</dd>
+      </div>
+      <div>
+        <dt>Name</dt>
+        <dd>{markedText(source.patient.name, excerpt)}</dd>
+      </div>
+      <div>
+        <dt>Date of birth</dt>
+        <dd>{markedText(source.patient.dateOfBirth, excerpt)}</dd>
+      </div>
+    </dl>
+  )
+}
+
+function SectionBlock({
+  document: source,
+  sectionId,
+  title,
+  activeEvidence,
+  children,
+}: {
+  document: HealthcareDocument
+  sectionId: string
+  title: string
+  activeEvidence: FindingEvidence | null
+  children: ReactNode
+}) {
+  const active =
+    activeEvidence?.documentId === source.id && activeEvidence.sectionId === sectionId
+
+  return (
+    <section
+      className={active ? 'document-block document-block--active' : 'document-block'}
+      id={sectionElementId(source.id, sectionId)}
+      tabIndex={-1}
+      aria-current={active ? 'true' : undefined}
+    >
+      <h4>{title}</h4>
+      {children}
+    </section>
+  )
+}
+
+function MedicationList({
+  document: source,
+  activeEvidence,
+}: {
+  document: HealthcareDocument
+  activeEvidence: FindingEvidence | null
+}) {
+  if (source.medications.length === 0) {
+    return null
+  }
+
+  const excerpt =
+    activeEvidence?.documentId === source.id && activeEvidence.sectionId === 'medication'
+      ? activeEvidence.excerpt
+      : null
+
+  return (
+    <ul className="document-meds">
+      {source.medications.map((entry, index) => (
+        <li
+          key={`${entry.name}-${entry.strength}-${index}`}
+          className={
+            lineMatches(excerpt, entry)
+              ? 'document-meds__item document-meds__item--active'
+              : 'document-meds__item'
+          }
+        >
+          <span className="document-meds__name">{entry.name}</span>
+          <span>
+            {entry.strength} · {entry.dosage}
+            {entry.instructions ? ` · ${entry.instructions}` : ''}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function excerptFor(
+  source: HealthcareDocument,
+  sectionId: string,
+  activeEvidence: FindingEvidence | null,
+): string | null {
+  if (activeEvidence?.documentId !== source.id || activeEvidence.sectionId !== sectionId) {
+    return null
+  }
+
+  return activeEvidence.excerpt
+}
+
+function markedText(text: string, excerpt: string | null) {
+  if (!excerpt) {
+    return text
+  }
+
+  const index = text.indexOf(excerpt)
+  if (index < 0) {
+    return text
+  }
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + excerpt.length)}</mark>
+      {text.slice(index + excerpt.length)}
+    </>
+  )
+}
+
+function lineMatches(excerpt: string | null, entry: MedicationEntry): boolean {
+  if (!excerpt || !excerpt.includes(entry.name)) {
+    return false
+  }
+
+  return (
+    excerpt.includes(entry.strength) ||
+    excerpt.includes(entry.dosage) ||
+    (entry.instructions !== undefined && excerpt.includes(entry.instructions))
   )
 }

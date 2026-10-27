@@ -1,27 +1,17 @@
-import {
-  Archive,
-  BookOpen,
-  Files,
-  ListChecks,
-  SearchCheck,
-  type LucideIcon,
-} from 'lucide-react'
+import { FilePlus, Home, type LucideIcon } from 'lucide-react'
+import type { AppPage } from './workspace.ts'
 
-type NavItem = {
-  label: string
-  icon: LucideIcon
-  current: boolean
+interface SideNavProps {
+  page: AppPage
+  onNavigate: (page: AppPage) => void
 }
 
-const navItems: readonly NavItem[] = [
-  { label: 'Documents', icon: Files, current: true },
-  { label: 'Review queue', icon: ListChecks, current: false },
-  { label: 'Findings', icon: SearchCheck, current: false },
-  { label: 'Guidelines', icon: BookOpen, current: false },
-  { label: 'Archive', icon: Archive, current: false },
-]
+const navItems = [
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'new-review', label: 'New Review', icon: FilePlus },
+] as const satisfies readonly { id: AppPage; label: string; icon: LucideIcon }[]
 
-export function SideNav() {
+export function SideNav({ page, onNavigate }: SideNavProps) {
   return (
     <nav className="side-nav" aria-label="Primary">
       <p className="side-nav__label">Workspace</p>
@@ -30,11 +20,12 @@ export function SideNav() {
           const Icon = item.icon
 
           return (
-            <li key={item.label}>
+            <li key={item.id}>
               <button
                 type="button"
                 className="side-nav__link"
-                aria-current={item.current ? 'page' : undefined}
+                aria-current={page === item.id ? 'page' : undefined}
+                onClick={() => onNavigate(item.id)}
               >
                 <Icon aria-hidden="true" size={18} strokeWidth={1.75} />
                 <span>{item.label}</span>

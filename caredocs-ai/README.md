@@ -46,13 +46,23 @@ Types live in `src/types/`. Synthetic fixtures live in `src/data/` and are check
 | `FindingEvidence` | The document, section, and excerpt a finding relies on. |
 | `ReviewState` | Which documents are in the review, the review's own status, and its findings. |
 
-A finding does not copy the source text into a second document. `FindingEvidence.documentId` selects a `HealthcareDocument`, `sectionId` selects a `DocumentSection.id` on that document, and `excerpt` is the passage the finding is about. Comparison logic can resolve that citation later; the fixtures do not pre-judge which value is correct.
+A finding does not copy the source text into a second document. `FindingEvidence.documentId` selects a `HealthcareDocument`, `sectionId` selects a `DocumentSection.id` on that document, and `excerpt` is the passage or structured value the finding is about. The comparison does not decide which value is correct.
+
+## Comparison engine
+
+`compareDocuments` in `src/features/document-review/comparison/` compares two synthetic documents against the review checklist. It is deterministic and does not call a model. Each checklist item gates its rule. Findings are returned with status `open`. The engine does not change review status and does not modify the source documents.
+
+The review panel lists those findings. Each excerpt selects the document and section it came from. Setting the review to completed does not change finding status.
+
+Patient id, name, and date of birth are compared separately. Medication strength, dosage, and administration instructions are compared separately. A medication name matches only after whitespace and case normalization. Brand and generic names are not treated as the same drug. A medication listed in only one document is a review prompt, not evidence that it was stopped.
+
+The follow-up and treatment checks run only when those checklist items are enabled. They report missing documentation for a person to review. They do not confirm a clinical error.
 
 Medication `strength` and `dosage` are different properties. `40 mg` is the preparation; `1 Tablette morgens` is how it is taken. A strength mismatch, such as Pantoprazol 40 mg versus 20 mg, must not be stored as a dosage change.
 
 `ReviewStatus` (`not-started`, `in-progress`, `completed`) describes the review. `FindingStatus` (`open`, `reviewed`, `resolved`, `follow-up-required`) describes one finding. Completing a review does not resolve its findings. A completed review may still contain follow-up.
 
-The fixtures are shaped for that future comparison, not as its result:
+The fixtures are the acceptance data for that comparison:
 
 - Both documents use patient id `DEMO-4711` and date of birth `1962-03-14`.
 - The names differ on purpose: Erika Beispiel and Erika Beispel.
