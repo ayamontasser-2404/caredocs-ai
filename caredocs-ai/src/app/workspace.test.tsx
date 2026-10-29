@@ -1,6 +1,23 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const createOcrSession = vi.hoisted(() => vi.fn())
+const renderPdfPage = vi.hoisted(() => vi.fn())
+
+vi.mock('../features/document-review/extraction/run-ocr.ts', () => ({
+  createOcrSession,
+  ocrLanguage: 'deu',
+}))
+
+vi.mock('../features/document-review/extraction/render-pdf-page.ts', () => ({
+  renderPdfPage,
+  ocrPageScale: 2,
+  releaseCanvas(canvas: HTMLCanvasElement) {
+    canvas.width = 0
+    canvas.height = 0
+  },
+}))
 import { reviewChecklist } from '../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../data/sampleMedicationPlan.ts'
@@ -10,6 +27,8 @@ import { App } from './App.tsx'
 
 afterEach(() => {
   cleanup()
+  createOcrSession.mockReset()
+  renderPdfPage.mockReset()
 })
 
 describe('workspace pages', () => {
@@ -162,22 +181,57 @@ describe('workspace pages', () => {
     expect(screen.getByText('Pantoprazol 40 mg')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Page 2' })).toBeTruthy()
     expect(screen.getByText('Ramipril 5 mg')).toBeTruthy()
+    expect(screen.getAllByText('Embedded text')).toHaveLength(2)
     expect(
-      screen.getByText('This is text read from the file. It is not a review finding, and the documents have not been compared.'),
+      screen.getByText('This text is unverified. It is not a review finding, and the documents have not been compared.'),
     ).toBeTruthy()
+    expect(createOcrSession).not.toHaveBeenCalled()
+    expect(renderPdfPage).not.toHaveBeenCalled()
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
     expect(compareButton().disabled).toBe(true)
 
+    createOcrSession.mockImplementation(async () => ({
+      recognize: async () => ({ text: '   ', confidence: 12 }),
+      dispose: async () => undefined,
+    }))
+    renderPdfPage.mockImplementation(async () => document.createElement('canvas'))
+
     const blank = new File([pdfBytes([''])], 'blank.pdf', { type: 'application/pdf' })
     await user.upload(screen.getByLabelText('Choose medication plan'), blank)
 
-    expect(await screen.findByText('Status: No extractable text was found')).toBeTruthy()
+    expect(await screen.findByText('Status: No readable text found')).toBeTruthy()
     expect(screen.getByText('Document: blank.pdf')).toBeTruthy()
     expect(screen.getByText('Pages: 1')).toBeTruthy()
-    expect(screen.getByText('This page has no embedded text.')).toBeTruthy()
+    expect(screen.getByText('OCR')).toBeTruthy()
+    expect(screen.getByText('This page has no readable text.')).toBeTruthy()
+    expect(createOcrSession).toHaveBeenCalledTimes(1)
+    expect(renderPdfPage).toHaveBeenCalledTimes(1)
     expect(compareButton().disabled).toBe(true)
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+  })
+
+  it('shows recognized text from a scanned PDF without creating findings', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    createOcrSession.mockImplementation(async () => ({
+      recognize: async () => ({ text: 'Entlassbrief', confidence: 81 }),
+      dispose: async () => undefined,
+    }))
+    renderPdfPage.mockImplementation(async () => document.createElement('canvas'))
+
+    const scan = new File([pdfBytes([''])], 'scan.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByLabelText('Choose discharge letter'), scan)
+
+    expect(await screen.findByText('Status: OCR completed')).toBeTruthy()
+    expect(screen.getByText('Document: scan.pdf')).toBeTruthy()
+    expect(screen.getByText('Entlassbrief')).toBeTruthy()
+    expect(screen.getByText('Recognizer confidence: 81. This score is not a clinical check.')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(compareButton().disabled).toBe(true)
   })
 })
 

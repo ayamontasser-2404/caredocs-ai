@@ -7,10 +7,8 @@ import {
   setFindingStatus,
   setReviewStatus,
 } from '../../features/document-review/review-session.ts'
-import {
-  PdfTextExtractionError,
-  extractPdfText,
-} from '../../features/document-review/extraction/extract-pdf-text.ts'
+import { extractPdfContent } from '../../features/document-review/extraction/extract-pdf-content.ts'
+import { PdfTextExtractionError } from '../../features/document-review/extraction/extract-pdf-text.ts'
 import { parseDocumentUpload } from '../../features/document-review/template-validation.ts'
 import type { DocumentType } from '../../types/document.ts'
 import type { FindingStatus, ReviewStatus } from '../../types/review.ts'
@@ -34,6 +32,7 @@ import {
   rejectUpload,
   removeDocument,
   showPage,
+  updateExtractionProgress,
   type AppPage,
   type WorkspaceState,
 } from './workspace.ts'
@@ -108,7 +107,15 @@ export function AppShell() {
       cancelCompare()
       setWorkspace((current) => beginExtraction(current, type, file.name))
 
-      void extractPdfText(file).then(
+      void extractPdfContent(file, {
+        onProgress(progress) {
+          if (extractionGeneration.current[type] !== generation) {
+            return
+          }
+
+          setWorkspace((current) => updateExtractionProgress(current, type, progress.message))
+        },
+      }).then(
         (result) => {
           if (extractionGeneration.current[type] !== generation) {
             return

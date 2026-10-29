@@ -22,8 +22,8 @@ The application assists document review. It does **not** diagnose, prescribe, de
 
 ### Not implemented in the reviewed snapshot
 
-- Native PDF text extraction.
-- OCR for scanned PDFs or images.
+- Mapping PDF or OCR text into a `HealthcareDocument`.
+- OCR of image files that are not PDF pages.
 - Reliable extraction of unstructured clinical text into the domain model.
 - Backend API, database, authentication, or durable multi-user persistence unless separately added after this snapshot.
 - Clinical validation of the checklist rules.
@@ -157,7 +157,11 @@ Pure session functions. `createReviewSession` requires exactly two documents, ca
 
 ### `features/document-review/template-validation.ts`
 
-`parseDocumentUpload` JSON-parses a file and `validateDocumentTemplate` checks it against the slot template. This is not a PDF or Word extraction pipeline. The accepted result is a `HealthcareDocument`. The original `File` and the raw JSON text are not retained.
+`parseDocumentUpload` JSON-parses a file and `validateDocumentTemplate` checks it against the slot template. The accepted result is a `HealthcareDocument`. The original `File` and the raw JSON text are not retained.
+
+### `features/document-review/extraction/`
+
+`extractPdfText` reads embedded PDF.js text, one page at a time. `extractPdfContent` calls that first. A page whose text trims to empty is rendered with PDF.js and recognized by one Tesseract.js worker (`deu`). Pages that already have text are not rendered. The result records `embedded`, `ocr`, or `mixed`, plus page method and recognizer confidence when Tesseract returns it. A render or OCR failure throws `PdfTextExtractionError` and is not stored as an empty success. Limits are 20 MiB and 50 pages. The worker and the PDF document are closed when the read finishes. The page image is not sent to an OCR API. Tesseract.js may download German language data and its WASM core on first use.
 
 ### `types/`
 
@@ -177,7 +181,9 @@ Home (initial page)
             ├─ Use sample discharge letter / medication plan
             │    └─ acceptDocument stores the fixture and clears the previous review
             ├─ Upload a file
-            │    ├─ PDF or Word: rejectUpload, no parse, previous document kept
+            │    ├─ Word: rejectUpload, no parse, previous document kept
+            │    ├─ PDF: extractPdfContent, store text on the card, document stays null
+            │    │    └─ failure or no readable text does not create findings
             │    ├─ JSON parse + validateDocumentTemplate
             │    ├─ invalid: rejectUpload, previous document and review kept
             │    └─ valid: acceptDocument, previous review cleared
@@ -194,20 +200,19 @@ Home (initial page)
 
 A comparison that throws `ComparisonInputError` calls `failCompare`. The findings area shows that message. It does not show the pre-comparison empty state or the zero-findings message.
 
-### Future PDF workflow (planned, not current behavior)
+### PDF text that is read today, and what is still not built
 
 ```text
 PDF upload
-  └─ File/type/size validation
-       └─ PDF text extraction
-            └─ Extraction result with page/source provenance
-                 └─ Structured extraction into canonical document model
-                      └─ Schema/domain validation
-                           └─ Human confirmation for uncertain or missing values
-                                └─ Existing deterministic comparison engine
+  └─ File/type/size/page validation
+       └─ Embedded PDF.js text
+            ├─ page has usable text: keep it, do not run OCR
+            └─ page has no usable text: render the page, recognize it with Tesseract.js
+                 └─ Page text, method, and confidence shown on the upload card
+                      └─ Not a HealthcareDocument and not a finding
 ```
 
-Keep extraction separate from comparison. A PDF containing selectable text still requires an extraction implementation. Scanned PDFs require OCR and must not be claimed as supported until implemented and tested.
+Structured extraction into the canonical document model, schema validation of that result, human confirmation, and comparison of PDF text are not implemented. OCR output is unverified text. Recognizer confidence is not a clinical check. Browser processing is not a regulatory-compliance claim.
 
 ## 6. Domain and comparison principles
 
@@ -228,7 +233,7 @@ Use the exact enum values and required fields defined in `src/types/`; do not as
 
 `parseDocumentUpload` accepts JSON with the `HealthcareDocument` shape for the selected slot. The file `type` must match the slot. Required discharge-letter section ids are `admission-reason`, `diagnoses`, `findings`, `treatment`, `medication`, and `follow-up`. Required medication-plan section ids are `patient` and `medication`. A section is present when its id matches, it appears once, and its title and content are non-blank after trim. The uploaded title does not have to equal the German template label. `synthetic` must be `true`, and `demoNotice` must be non-blank. At least one medication line needs a name, strength, and dosage.
 
-`AppShell` rejects `.pdf`, `.doc`, and `.docx`, including the PDF and Word MIME types, before parsing. The UI tells the reviewer that PDF and Word files are not processed.
+`AppShell` reads a PDF with `extractPdfContent` and rejects `.doc` and `.docx` before parsing. The UI says Word files are not processed. A PDF result does not enable Compare Documents.
 
 For unsupported formats or malformed data:
 
@@ -239,7 +244,7 @@ For unsupported formats or malformed data:
 
 The current app stores the parsed document and a filename string. It does not keep the original `File` or the raw JSON. A sample is stored only when the reviewer uses the sample button, and its filename is shown with ` (sample)`.
 
-If adding PDF support, define limits for file size/page count and handle encrypted, empty, malformed, or textless PDFs explicitly. Avoid sending real patient data to external services without an approved privacy/security design.
+PDF limits are 20 MiB and 50 pages. Encrypted, empty, and malformed PDFs fail with a controlled message. A PDF with no readable text is a successful read, not a failure. Do not send page images to an external OCR API. Tesseract.js language data and WASM are a separate download from the document contents.
 
 ## 8. State and persistence
 

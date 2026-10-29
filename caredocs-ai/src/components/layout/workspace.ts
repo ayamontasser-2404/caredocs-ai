@@ -95,7 +95,12 @@ export function beginExtraction(state: WorkspaceState, type: DocumentType, fileN
       document: null,
       filename: fileName,
       errors: [],
-      extraction: { status: 'extracting', fileName, result: null, message: null },
+      extraction: {
+        status: 'extracting',
+        fileName,
+        result: null,
+        message: 'Reading embedded PDF text…',
+      },
     }),
   )
 }
@@ -123,10 +128,27 @@ export function finishExtraction(
         status: result.hasExtractableText ? 'success' : 'no-text',
         fileName: result.fileName,
         result,
-        message: null,
+        message: completionMessage(result),
       },
     }),
   )
+}
+
+/** Replace the in-progress status text. Ignored once the read has finished. */
+export function updateExtractionProgress(
+  state: WorkspaceState,
+  type: DocumentType,
+  message: string,
+): WorkspaceState {
+  const current = slotFor(state, type)
+  if (current.extraction.status !== 'extracting') {
+    return state
+  }
+
+  return assignSlot(state, type, {
+    ...current,
+    extraction: { ...current.extraction, message },
+  })
 }
 
 /** Record a failed read without turning it into an empty extraction result. */
@@ -229,6 +251,18 @@ export function documentsInReview(state: WorkspaceState): readonly HealthcareDoc
   }
 
   return [state.letter.document, state.plan.document]
+}
+
+function completionMessage(result: PdfTextExtractionResult): string | null {
+  if (!result.hasExtractableText) {
+    return null
+  }
+
+  if (result.source === 'ocr' || result.source === 'mixed') {
+    return 'OCR completed'
+  }
+
+  return null
 }
 
 function clearReview(state: WorkspaceState): WorkspaceState {

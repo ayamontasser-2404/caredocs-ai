@@ -4,7 +4,7 @@ CareDocs AI compares a structured discharge letter with a structured medication 
 
 The comparison does not decide which value is correct, recommend a medication change, or confirm a clinical error. Every patient and clinical string in this repository is fictional.
 
-PDF text extraction, OCR, a language model, accounts, and saved reviews are not implemented. An upload lasts for the browser session only. Refreshing the page returns to Home with empty document slots.
+An uploaded PDF is read in the browser. Embedded text is extracted with PDF.js. Pages without usable embedded text are recognized with Tesseract.js using the German language data (`deu`). That text is unverified. It is not turned into a structured document, a finding, or a comparison. A language model, accounts, and saved reviews are not implemented. An upload lasts for the browser session only. Refreshing the page returns to Home with empty document slots.
 
 ## Run
 
@@ -23,7 +23,7 @@ npm run dev
 | `npm run build` | `tsc -b` and the Vite production build |
 | `npm run preview` | Preview the production build |
 
-Dependencies used by the app are React 19, TypeScript, and `lucide-react`. Tests use Vitest, happy-dom, and React Testing Library. There is no router and no state library.
+Dependencies used by the app are React 19, TypeScript, `lucide-react`, `pdfjs-dist`, and `tesseract.js`. Tests use Vitest, happy-dom, and React Testing Library. There is no router and no state library.
 
 ## Pages
 
@@ -51,7 +51,9 @@ There is no URL route. State is React state in memory.
 
 `parseDocumentUpload` in `src/features/document-review/template-validation.ts` reads one JSON file for the selected slot. The slot chooses the template. The file `type` must be `discharge-letter` or `medication-plan`.
 
-`AppShell` rejects `.pdf`, `.doc`, and `.docx` before parsing, including the matching MIME types. The message is: `PDF and Word files are not processed. Upload the structured JSON template.` Invalid JSON returns `The file is not valid JSON.`
+A PDF is validated, then read with `extractPdfContent`. Pages that already contain embedded text stay on that path. Pages without usable text are rendered with PDF.js and recognized with one Tesseract.js worker (`deu`). The card shows the file name, page count, page text, extraction method, and recognizer confidence when the library returns it. Confidence is not a clinical check. Compare Documents stays disabled until both slots hold structured JSON documents.
+
+`AppShell` rejects `.doc` and `.docx` before parsing. The message is: `Word files are not processed. Upload a PDF to extract text, or the structured JSON template.` Invalid JSON returns `The file is not valid JSON.` A PDF that cannot be opened, rendered, or recognized shows a controlled error and is not stored as an empty success. A PDF that opens but yields no readable text is a successful read with status `No readable text found`.
 
 A section counts as present when its id matches the template, it appears once, and its title and content are non-blank after trim. The German titles below are the template labels. The validator does not require the uploaded title to equal that label. Extra sections are allowed. Messages name section ids and missing fields. They do not quote patient or medication values.
 
@@ -61,7 +63,7 @@ Medication plan section ids, in order: `patient`, `medication`.
 
 Also required: document id, title, filename, `createdAt`, `synthetic: true`, a non-blank `demoNotice`, patient id, name, date of birth, and at least one medication line with name, strength, and dosage. Instructions are optional.
 
-The stored document keeps the original clinical strings. The original `File` and the raw JSON text are not kept. Only the parsed document and the selected filename are stored. A sample filename is shown as `{filename} (sample)`.
+The stored JSON document keeps the original clinical strings. The original `File` and the raw JSON text are not kept. A PDF keeps the extraction result and filename in session state and does not set the structured document. A sample filename is shown as `{filename} (sample)`.
 
 Each card can load its built-in fixture: `sampleDischargeLetter` or `sampleMedicationPlan`. That is an explicit button. A failed upload does not switch the slot to the sample.
 

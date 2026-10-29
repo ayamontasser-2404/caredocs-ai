@@ -5,6 +5,7 @@ import {
   PasswordException,
   VerbosityLevel,
 } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { ExtractedPdfPage, PdfTextExtractionResult } from './extraction-types.ts'
 
 /**
@@ -34,12 +35,16 @@ export class PdfTextExtractionError extends Error {
   }
 }
 
+export interface OpenPdf {
+  pdf: PDFDocumentProxy
+  close: () => Promise<void>
+}
+
 /**
- * Read embedded text from a PDF file, one page at a time.
- * A page with no text is kept, with an empty string, so the page count stays honest.
- * A file that cannot be opened throws. It is not returned as an empty document.
+ * Open a validated PDF. The caller must `close` it.
+ * Page images are not retained here.
  */
-export async function extractPdfText(file: File): Promise<PdfTextExtractionResult> {
+export async function openValidatedPdf(file: File): Promise<OpenPdf> {
   if (!isPdfFile(file)) {
     throw new PdfTextExtractionError('The file is not a PDF.')
   }
@@ -67,15 +72,35 @@ export async function extractPdfText(file: File): Promise<PdfTextExtractionResul
 
   try {
     const pdf = await task.promise
-
     if (pdf.numPages > maxPdfPages) {
       throw new PdfTextExtractionError('The PDF has too many pages to read.')
     }
 
+    return {
+      pdf,
+      close: async () => {
+        await task.destroy().catch(() => undefined)
+      },
+    }
+  } catch (error) {
+    await task.destroy().catch(() => undefined)
+    throw toExtractionError(error)
+  }
+}
+
+/**
+ * Read embedded text from a PDF file, one page at a time.
+ * A page with no text is kept, with an empty string, so the page count stays honest.
+ * A file that cannot be opened throws. It is not returned as an empty document.
+ */
+export async function extractPdfText(file: File): Promise<PdfTextExtractionResult> {
+  const opened = await openValidatedPdf(file)
+
+  try {
     const pages: ExtractedPdfPage[] = []
 
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
+    for (let pageNumber = 1; pageNumber <= opened.pdf.numPages; pageNumber += 1) {
+      const page = await opened.pdf.getPage(pageNumber)
       const content = await page.getTextContent()
       let text = ''
 
@@ -97,15 +122,16 @@ export async function extractPdfText(file: File): Promise<PdfTextExtractionResul
 
     return {
       fileName: file.name,
-      pageCount: pdf.numPages,
+      pageCount: opened.pdf.numPages,
       pages,
       fullText,
       hasExtractableText: pages.some((page) => page.text.trim().length > 0),
+      source: 'embedded',
     }
   } catch (error) {
     throw toExtractionError(error)
   } finally {
-    await task.destroy().catch(() => undefined)
+    await opened.close()
   }
 }
 
