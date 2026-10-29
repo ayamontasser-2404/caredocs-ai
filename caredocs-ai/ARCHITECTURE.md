@@ -22,7 +22,7 @@ The application assists document review. It does **not** diagnose, prescribe, de
 
 ### Not implemented in the reviewed snapshot
 
-- Mapping PDF or OCR text into a `HealthcareDocument`.
+- Mapping extracted PDF fields into a `HealthcareDocument` after human verification.
 - OCR of image files that are not PDF pages.
 - Reliable extraction of unstructured clinical text into the domain model.
 - Backend API, database, authentication, or durable multi-user persistence unless separately added after this snapshot.
@@ -163,6 +163,16 @@ Pure session functions. `createReviewSession` requires exactly two documents, ca
 
 `extractPdfText` reads embedded PDF.js text, one page at a time. `extractPdfContent` calls that first. A page whose text trims to empty is rendered with PDF.js and recognized by one Tesseract.js worker (`deu`). Pages that already have text are not rendered. The result records `embedded`, `ocr`, or `mixed`, plus page method and recognizer confidence when Tesseract returns it. A render or OCR failure throws `PdfTextExtractionError` and is not stored as an empty success. Limits are 20 MiB and 50 pages. The worker and the PDF document are closed when the read finishes. The page image is not sent to an OCR API. Tesseract.js may download German language data and its WASM core on first use.
 
+`extractDocumentData` reads that page text with labeled rules. It does not call a model. Field names follow `PatientIdentity` and `MedicationEntry`, but a missing field stays missing, so the result is not a `HealthcareDocument`. Each found value keeps its source span, page number, and text source. A normalized date is stored only when the source date has one valid reading. Dotted numeric dates are German day-month-year. A slash or hyphen date with both numbers at most 12 is left unparsed. Two different strengths for the same medication name stay ambiguous and neither is selected. Strength is not copied into dosage. The result is not passed to `compareDocuments`.
+
+### `features/document-review/verification/`
+
+`createDocumentVerification` copies extracted fields into reviewed fields. Editing changes `reviewedValue` only. The extracted field, its source text, and its page numbers stay as they were. `confirmReviewedField` confirms one field when that field has no structural problem and a non-empty reviewed value. Confirming one field does not confirm the others. Editing a confirmed field returns it to unverified.
+
+Structural checks cover a required empty value, a name that is not one to six letter-words, a date `interpretDate` cannot read, a strength that is not a number plus a supported unit, an unsupported document type, and a page number outside the PDF. Uncertainty covers an ambiguous field, an unparsed field, missing source text, and OCR text. OCR confidence is copied only when the page has a finite score. These categories are not combined into one success flag, and a valid structure is not a clinical confirmation.
+
+`eligibleForComparison` is true only when every required field has source text, no structural problem, and status `confirmed`. Required fields are patient name, date of birth, and each extracted medication's name and strength. Patient id, dosage, instructions, route, frequency, other dates, follow-up, treatment, and document metadata are optional. A present optional field with a structural problem blocks readiness. An absent optional field does not. The flag does not call `compareDocuments` and does not create a `HealthcareDocument`. There is no reviewer identity, timestamp, audit log, or persistence. Confirmation is not an electronic signature and is not a regulatory-compliance claim.
+
 ### `types/`
 
 - `document.ts`: canonical document and section domain types.
@@ -182,8 +192,10 @@ Home (initial page)
             │    └─ acceptDocument stores the fixture and clears the previous review
             ├─ Upload a file
             │    ├─ Word: rejectUpload, no parse, previous document kept
-            │    ├─ PDF: extractPdfContent, store text on the card, document stays null
-            │    │    └─ failure or no readable text does not create findings
+            │    ├─ PDF: extractPdfContent, then extractDocumentData, document stays null
+            │    │    ├─ createDocumentVerification keeps the extraction and adds review state
+            │    │    ├─ a field edit or confirmation does not enable Compare Documents
+            │    │    └─ failure, no readable text, or ambiguous fields do not create findings
             │    ├─ JSON parse + validateDocumentTemplate
             │    ├─ invalid: rejectUpload, previous document and review kept
             │    └─ valid: acceptDocument, previous review cleared
@@ -209,10 +221,14 @@ PDF upload
             ├─ page has usable text: keep it, do not run OCR
             └─ page has no usable text: render the page, recognize it with Tesseract.js
                  └─ Page text, method, and confidence shown on the upload card
-                      └─ Not a HealthcareDocument and not a finding
+                      └─ extractDocumentData reads labeled fields and page evidence
+                           └─ createDocumentVerification
+                                ├─ structural checks, uncertainty, and per-field confirmation stay separate
+                                ├─ eligibleForComparison is a flag only
+                                └─ Not a HealthcareDocument, not a finding, and not compared
 ```
 
-Structured extraction into the canonical document model, schema validation of that result, human confirmation, and comparison of PDF text are not implemented. OCR output is unverified text. Recognizer confidence is not a clinical check. Browser processing is not a regulatory-compliance claim.
+Schema validation of a PDF into a `HealthcareDocument`, and comparison of PDF text, are not implemented. A reviewer can correct and confirm fields in the current browser session. That confirmation is not an electronic signature, and it is dropped on refresh. Recognizer confidence is not a clinical check. Browser processing is not a regulatory-compliance claim.
 
 ## 6. Domain and comparison principles
 

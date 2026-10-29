@@ -19,7 +19,7 @@ In scope:
 
 Out of scope:
 
-- Turning PDF or OCR text into the structured template. Comparison still requires a JSON document. Word files are not read.
+- Turning extracted PDF fields into a validated `HealthcareDocument`. Comparison still requires a JSON document. Word files are not read.
 - A language model, brand/generic drug mapping, or clinical decision support.
 - Accounts, a server API, or a database. An upload lasts for the browser session only.
 - Editing the source documents from the review.
@@ -65,7 +65,7 @@ A `ReviewFinding` has a stable id, category, severity, status, title, descriptio
 
 The reviewer can upload a file into the discharge-letter slot and a file into the medication-plan slot. Each slot can also load its built-in synthetic document. Nothing is compared until the reviewer selects Compare Documents, and that action stays unavailable until both slots hold a valid document.
 
-An accepted comparison file is JSON with the `HealthcareDocument` shape. The selected slot decides which template applies. The file's `type` must match that slot: `discharge-letter` or `medication-plan`. A medication plan uploaded as a discharge letter is rejected, and the reverse is rejected. A PDF is read in the browser: embedded text first, then OCR (`deu`) only for pages without usable text. The extracted text is shown on the card and is not a document or a finding. `.doc` and `.docx` files are rejected before JSON parsing. The message says Word files are not processed.
+An accepted comparison file is JSON with the `HealthcareDocument` shape. The selected slot decides which template applies. The file's `type` must match that slot: `discharge-letter` or `medication-plan`. A medication plan uploaded as a discharge letter is rejected, and the reverse is rejected. A PDF is read in the browser: embedded text first, then OCR (`deu`) only for pages without usable text. Labeled fields in that text are listed with their source page. The result is not a document or a finding. An ambiguous value is not selected. `.doc` and `.docx` files are rejected before JSON parsing. The message says Word files are not processed.
 
 Validation is structural. It checks that the known sections are present. It does not judge whether the clinical content is adequate, and it does not create review findings. A file that fails validation is not shown as a source document and is not passed to `compareDocuments`. A failed upload does not load the sample fixture.
 
@@ -181,7 +181,7 @@ Invalid input throws `ComparisonInputError` and names the missing field, not the
 
 The shell is a header and a side navigation with two pages, Home and New Review. Home introduces the workspace, the two supported document types, and the review steps. Start New Review opens the New Review page. Switching pages does not clear a review that is already on screen.
 
-New Review shows the two upload cards first and the findings underneath. Each card accepts the JSON template for that slot, shows the selected filename, and can replace or remove that file. A rejected file explains which template check failed and is not passed to `compareDocuments`. A PDF shows its page text, method, and recognizer confidence when present. That text is unverified and is not compared. Word files are not read.
+New Review shows the two upload cards first and the findings underneath. Each card accepts the JSON template for that slot, shows the selected filename, and can replace or remove that file. A rejected file explains which template check failed and is not passed to `compareDocuments`. A PDF shows its page text, method, recognizer confidence when present, and any labeled fields with their source page. The same card lists a reviewed value for each field that needs review. The reviewer can correct one field and confirm that field. The original extraction and its source text stay visible. Confirmation of every required field can mark the PDF eligible for a later comparison. That mark does not compare the PDF, and Compare Documents still requires two JSON documents. Word files are not read. Review state is not saved, and confirmation is not an electronic signature.
 
 Compare Documents runs only when both documents are valid. The findings section then shows the counts, and each finding shows its category, severity, status, description, rationale, and evidence. Evidence names the source document, the section, and the excerpt. The source documents are shown with the results, and activating an excerpt highlights that section. A medication excerpt also highlights the matching line. A sentence excerpt is marked inside the section text.
 
@@ -213,12 +213,12 @@ Upload acceptance checks:
 - A discharge letter missing `follow-up` or `treatment` is rejected.
 - A medication plan missing `patient` is rejected.
 - A section title may differ from the template label. A blank title is rejected.
-- A Word file is rejected and is not compared. A PDF is read and is still not compared. OCR text does not create findings.
+- A Word file is rejected and is not compared. A PDF is read, labeled fields may be listed, and those fields may be corrected and confirmed in the session. The PDF is still not compared. OCR text, structured fields, and field confirmation do not create findings.
 - A rejected file does not replace the accepted document and does not load the sample.
 
 Current checks, run from this directory (the directory that contains `package.json`, not the git root):
 
-- `npm test` runs the comparison, template-validation, review-session, PDF extraction, and workspace-page tests.
+- `npm test` runs the comparison, template-validation, review-session, PDF extraction, field-verification, and workspace-page tests.
 - `npm run lint` runs Oxlint.
 - `npm run build` typechecks and builds the Vite app.
 - `npm run dev` starts the workspace.

@@ -22,7 +22,9 @@ import {
   beginExtraction,
   canCompare,
   cancelExtraction,
+  confirmReviewedField,
   documentsInReview,
+  editReviewedField,
   clearExtractionError,
   failCompare,
   failExtraction,
@@ -247,6 +249,12 @@ export function AppShell() {
               onUpload={handleUpload}
               onRemove={handleRemove}
               onUseSample={handleUseSample}
+              onEditField={(type, path, value) => {
+                setWorkspace((current) => editReviewedField(current, type, path, value))
+              }}
+              onConfirmField={(type, path) => {
+                setWorkspace((current) => confirmReviewedField(current, type, path))
+              }}
               onCompare={handleCompare}
               onReviewStatusChange={handleReviewStatus}
               onFindingStatusChange={handleFindingStatus}

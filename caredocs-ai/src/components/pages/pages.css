@@ -206,6 +206,17 @@
   gap: var(--spacing-4);
 }
 
+.extraction-panel__edit {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.extraction-panel__edit input {
+  width: 100%;
+  font: inherit;
+  padding: var(--spacing-4);
+}
+
 .extraction-panel__text {
   margin: 0;
   white-space: pre-wrap;

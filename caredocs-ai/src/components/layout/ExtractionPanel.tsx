@@ -1,14 +1,20 @@
+import type { DocumentType } from '../../types/document.ts'
+import { FieldVerification } from './FieldVerification.tsx'
+import { StructuredFields } from './StructuredFields.tsx'
 import type { SlotExtraction } from './workspace.ts'
 
 interface ExtractionPanelProps {
+  documentType: DocumentType
   extraction: SlotExtraction
+  onEditField: (type: DocumentType, path: string, value: string) => void
+  onConfirmField: (type: DocumentType, path: string) => void
 }
 
 /**
  * Shows text read from one PDF.
  * This panel is not the review findings list. Extracting text does not compare documents.
  */
-export function ExtractionPanel({ extraction }: ExtractionPanelProps) {
+export function ExtractionPanel({ documentType, extraction, onEditField, onConfirmField }: ExtractionPanelProps) {
   if (extraction.status === 'idle') {
     return null
   }
@@ -44,6 +50,15 @@ export function ExtractionPanel({ extraction }: ExtractionPanelProps) {
               )}
             </div>
           ))}
+          {extraction.structured ? <StructuredFields extraction={extraction.structured} /> : null}
+          {extraction.verification ? (
+            <FieldVerification
+              documentType={documentType}
+              verification={extraction.verification}
+              onEdit={onEditField}
+              onConfirm={onConfirmField}
+            />
+          ) : null}
         </>
       ) : null}
     </section>

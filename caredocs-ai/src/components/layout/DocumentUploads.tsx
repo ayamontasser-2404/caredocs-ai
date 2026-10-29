@@ -10,6 +10,8 @@ interface DocumentUploadsProps {
   onUpload: (type: DocumentType, file: File) => void
   onRemove: (type: DocumentType) => void
   onUseSample: (type: DocumentType) => void
+  onEditField: (type: DocumentType, path: string, value: string) => void
+  onConfirmField: (type: DocumentType, path: string) => void
 }
 
 const slotCopy = {
@@ -32,7 +34,15 @@ const slotCopy = {
   },
 } as const
 
-export function DocumentUploads({ letter, plan, onUpload, onRemove, onUseSample }: DocumentUploadsProps) {
+export function DocumentUploads({
+  letter,
+  plan,
+  onUpload,
+  onRemove,
+  onUseSample,
+  onEditField,
+  onConfirmField,
+}: DocumentUploadsProps) {
   const slots = { 'discharge-letter': letter, 'medication-plan': plan } as const
 
   return (
@@ -91,7 +101,12 @@ export function DocumentUploads({ letter, plan, onUpload, onRemove, onUseSample 
                 ))}
               </ul>
             ) : null}
-            <ExtractionPanel extraction={slot.extraction} />
+            <ExtractionPanel
+              documentType={type}
+              extraction={slot.extraction}
+              onEditField={onEditField}
+              onConfirmField={onConfirmField}
+            />
           </article>
         )
       })}

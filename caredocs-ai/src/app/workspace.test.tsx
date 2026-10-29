@@ -182,6 +182,13 @@ describe('workspace pages', () => {
     expect(screen.getByRole('heading', { name: 'Page 2' })).toBeTruthy()
     expect(screen.getByText('Ramipril 5 mg')).toBeTruthy()
     expect(screen.getAllByText('Embedded text')).toHaveLength(2)
+    expect(screen.getByText('Structured status: Structured data extracted')).toBeTruthy()
+    expect(screen.getByText('Medication name: Pantoprazol')).toBeTruthy()
+    expect(screen.getByText('Strength: 40 mg')).toBeTruthy()
+    expect(screen.getByText('Medication name: Ramipril')).toBeTruthy()
+    expect(screen.getByText('Strength: 5 mg')).toBeTruthy()
+    expect(screen.getAllByText('Dosage: Not found')).toHaveLength(2)
+    expect(screen.getByText('Patient name: Not found')).toBeTruthy()
     expect(
       screen.getByText('This text is unverified. It is not a review finding, and the documents have not been compared.'),
     ).toBeTruthy()
@@ -205,6 +212,7 @@ describe('workspace pages', () => {
     expect(screen.getByText('Pages: 1')).toBeTruthy()
     expect(screen.getByText('OCR')).toBeTruthy()
     expect(screen.getByText('This page has no readable text.')).toBeTruthy()
+    expect(screen.getByText('Structured status: No supported fields recognized')).toBeTruthy()
     expect(createOcrSession).toHaveBeenCalledTimes(1)
     expect(renderPdfPage).toHaveBeenCalledTimes(1)
     expect(compareButton().disabled).toBe(true)
@@ -229,9 +237,89 @@ describe('workspace pages', () => {
     expect(screen.getByText('Document: scan.pdf')).toBeTruthy()
     expect(screen.getByText('Entlassbrief')).toBeTruthy()
     expect(screen.getByText('Recognizer confidence: 81. This score is not a clinical check.')).toBeTruthy()
+    expect(screen.getByText('Structured status: No supported fields recognized')).toBeTruthy()
+    expect(screen.queryByText('Medication name: Entlassbrief')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(compareButton().disabled).toBe(true)
+  })
+
+  it('shows structured fields from labeled PDF text without creating findings', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    const labeled = new File(
+      [
+        pdfBytes([
+          textStream('Patient name: Erika Beispiel'),
+          textStream('Date of birth: 12 March 1980'),
+          textStream('Medication: Pantoprazol 40 mg'),
+          textStream('Instruction: Take one tablet in the morning.'),
+          textStream('Follow-up: 15 November 2026'),
+        ]),
+      ],
+      'labeled.pdf',
+      { type: 'application/pdf' },
+    )
+    await user.upload(screen.getByLabelText('Choose discharge letter'), labeled)
+
+    expect(await screen.findByText('Structured status: Structured data extracted')).toBeTruthy()
+    expect(screen.getAllByText('Patient name: Erika Beispiel')).toHaveLength(2)
+    expect(screen.getByText('Date of birth: 12 March 1980 (1980-03-12)')).toBeTruthy()
+    expect(screen.getByText('Medication name: Pantoprazol')).toBeTruthy()
+    expect(screen.getByText('Strength: 40 mg')).toBeTruthy()
+    expect(screen.getByText('Dosage: Not found')).toBeTruthy()
+    expect(screen.getByText('Instructions: Take one tablet in the morning')).toBeTruthy()
+    expect(screen.getByText('Follow-up date: 15 November 2026 (2026-11-15)')).toBeTruthy()
+    expect(screen.getByText('Source page 1: Patient name: Erika Beispiel')).toBeTruthy()
+    expect(screen.getAllByText('Source page 3: Medication: Pantoprazol 40 mg')).toHaveLength(2)
+    expect(screen.getByText('Source page 5: Follow-up: 15 November 2026')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+    expect(compareButton().disabled).toBe(true)
+    expect(createOcrSession).not.toHaveBeenCalled()
+  })
+
+  it('keeps a corrected PDF field unverified until it is confirmed and does not compare it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+    await user.upload(screen.getByLabelText('Choose discharge letter'), labeledPdf())
+
+    expect(await screen.findByText('Comparison readiness: Not eligible')).toBeTruthy()
+    expect(screen.getByText('Verification for Patient name: Unverified')).toBeTruthy()
+    expect(screen.getByText('Original extracted value: 40 mg')).toBeTruthy()
+
+    const dateOfBirth = screen.getByRole('textbox', { name: 'Reviewed value for Date of birth' })
+    await user.clear(dateOfBirth)
+    await user.type(dateOfBirth, '03/04/1962')
+
+    expect(screen.getAllByText('Date of birth: This date could not be read unambiguously.')).toHaveLength(2)
+    expect((screen.getByRole('button', { name: 'Confirm Date of birth' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('Comparison readiness: Not eligible')).toBeTruthy()
+
+    await user.clear(dateOfBirth)
+    await user.type(dateOfBirth, '12 March 1980')
+    const strength = screen.getByRole('textbox', { name: 'Reviewed value for Medication 1 strength' })
+    await user.clear(strength)
+    await user.type(strength, '20 mg')
+
+    expect(screen.getByText('Strength: 40 mg')).toBeTruthy()
+    expect(screen.getByText('Original extracted value: 40 mg')).toBeTruthy()
+    expect(screen.getByText('Verification for Medication 1 strength: Corrected')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Patient name' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm Date of birth' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm Medication 1 name' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm Medication 1 strength' }))
+
+    expect(screen.getByText('Verification for Follow-up date: Unverified. Optional')).toBeTruthy()
+    expect(screen.getByText('Verification for Medication 1 strength: Correction confirmed')).toBeTruthy()
+    expect(screen.getByText('Comparison readiness: Eligible for a later comparison')).toBeTruthy()
+    expect(compareButton().disabled).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
   })
 })
 
@@ -259,6 +347,22 @@ function statusFor(title: string): HTMLSelectElement {
 
 function jsonFile(name: string, document: HealthcareDocument): File {
   return new File([JSON.stringify(document)], name, { type: 'application/json' })
+}
+
+function labeledPdf(): File {
+  return new File(
+    [
+      pdfBytes([
+        textStream('Patient name: Erika Beispiel'),
+        textStream('Date of birth: 12 March 1980'),
+        textStream('Medication: Pantoprazol 40 mg'),
+        textStream('Instruction: Take one tablet in the morning.'),
+        textStream('Follow-up: 15 November 2026'),
+      ]),
+    ],
+    'labeled.pdf',
+    { type: 'application/pdf' },
+  )
 }
 
 function pdfBytes(pageStreams: readonly string[]): ArrayBuffer {

@@ -1,6 +1,16 @@
 import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
-import type { PdfTextExtractionResult } from '../../features/document-review/extraction/extraction-types.ts'
+import { extractDocumentData } from '../../features/document-review/extraction/extract-document-data.ts'
+import type {
+  PdfTextExtractionResult,
+  StructuredDocumentExtraction,
+} from '../../features/document-review/extraction/extraction-types.ts'
+import {
+  confirmReviewedField as confirmField,
+  createDocumentVerification,
+  editReviewedValue,
+} from '../../features/document-review/verification/review-extracted-document.ts'
+import type { DocumentVerification } from '../../features/document-review/verification/verification-types.ts'
 import type { DocumentType, HealthcareDocument } from '../../types/document.ts'
 import type { FindingEvidence, ReviewState } from '../../types/review.ts'
 
@@ -15,6 +25,8 @@ export interface SlotExtraction {
   status: ExtractionStatus
   fileName: string | null
   result: PdfTextExtractionResult | null
+  structured: StructuredDocumentExtraction | null
+  verification: DocumentVerification | null
   message: string | null
 }
 
@@ -36,7 +48,7 @@ export interface WorkspaceState {
 }
 
 function idleExtraction(): SlotExtraction {
-  return { status: 'idle', fileName: null, result: null, message: null }
+  return { status: 'idle', fileName: null, result: null, structured: null, verification: null, message: null }
 }
 
 function emptySlot(): DocumentSlot {
@@ -99,6 +111,8 @@ export function beginExtraction(state: WorkspaceState, type: DocumentType, fileN
         status: 'extracting',
         fileName,
         result: null,
+        structured: null,
+        verification: null,
         message: 'Reading embedded PDF text…',
       },
     }),
@@ -119,6 +133,8 @@ export function finishExtraction(
     return state
   }
 
+  const structured = extractDocumentData(result)
+
   return clearReview(
     assignSlot(state, type, {
       document: null,
@@ -128,10 +144,27 @@ export function finishExtraction(
         status: result.hasExtractableText ? 'success' : 'no-text',
         fileName: result.fileName,
         result,
+        structured,
+        verification: createDocumentVerification(structured, result.pages, result.pageCount),
         message: completionMessage(result),
       },
     }),
   )
+}
+
+/** Store a reviewer's edit without changing the extracted value or its evidence. */
+export function editReviewedField(
+  state: WorkspaceState,
+  type: DocumentType,
+  path: string,
+  value: string,
+): WorkspaceState {
+  return mapVerification(state, type, (verification) => editReviewedValue(verification, path, value))
+}
+
+/** Confirm one field. Invalid values are left unconfirmed. */
+export function confirmReviewedField(state: WorkspaceState, type: DocumentType, path: string): WorkspaceState {
+  return mapVerification(state, type, (verification) => confirmField(verification, path))
 }
 
 /** Replace the in-progress status text. Ignored once the read has finished. */
@@ -164,6 +197,8 @@ export function failExtraction(state: WorkspaceState, type: DocumentType, messag
       status: 'error',
       fileName: current.extraction.fileName,
       result: null,
+      structured: null,
+      verification: null,
       message,
     },
   })
@@ -281,4 +316,24 @@ function assignSlot(state: WorkspaceState, type: DocumentType, slot: DocumentSlo
 
 function slotFor(state: WorkspaceState, type: DocumentType): DocumentSlot {
   return type === 'discharge-letter' ? state.letter : state.plan
+}
+
+function mapVerification(
+  state: WorkspaceState,
+  type: DocumentType,
+  update: (verification: DocumentVerification) => DocumentVerification,
+): WorkspaceState {
+  const current = slotFor(state, type)
+  if (!current.extraction.verification) {
+    return state
+  }
+
+  return assignSlot(state, type, {
+    ...current,
+    document: null,
+    extraction: {
+      ...current.extraction,
+      verification: update(current.extraction.verification),
+    },
+  })
 }
