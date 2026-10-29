@@ -172,6 +172,49 @@
   color: var(--color-error);
 }
 
+.extraction-panel {
+  display: grid;
+  gap: var(--spacing-8);
+  padding: var(--spacing-16);
+  border-radius: var(--radius-control);
+  background: var(--color-primary-light);
+}
+
+.extraction-panel h3,
+.extraction-panel h4 {
+  margin: 0;
+}
+
+.extraction-panel h3 {
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
+}
+
+.extraction-panel__document,
+.extraction-panel__note,
+.extraction-panel p {
+  margin: 0;
+}
+
+.extraction-panel__note,
+.extraction-panel__document {
+  color: var(--color-text-secondary);
+}
+
+.extraction-panel__page {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.extraction-panel__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
+}
+
 .compare-action {
   display: flex;
 }

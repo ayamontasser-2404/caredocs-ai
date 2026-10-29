@@ -7,6 +7,10 @@ import {
   setFindingStatus,
   setReviewStatus,
 } from '../../features/document-review/review-session.ts'
+import {
+  PdfTextExtractionError,
+  extractPdfText,
+} from '../../features/document-review/extraction/extract-pdf-text.ts'
 import { parseDocumentUpload } from '../../features/document-review/template-validation.ts'
 import type { DocumentType } from '../../types/document.ts'
 import type { FindingStatus, ReviewStatus } from '../../types/review.ts'
@@ -17,10 +21,15 @@ import { SideNav } from './SideNav.tsx'
 import {
   acceptDocument,
   beginCompare,
+  beginExtraction,
   canCompare,
+  cancelExtraction,
   documentsInReview,
+  clearExtractionError,
   failCompare,
+  failExtraction,
   finishCompare,
+  finishExtraction,
   initialWorkspace,
   rejectUpload,
   removeDocument,
@@ -31,26 +40,35 @@ import {
 import './layout.css'
 import '../pages/pages.css'
 
-function isUnsupportedFile(file: File): boolean {
+function isWordFile(file: File): boolean {
   const name = file.name.toLowerCase()
   return (
-    name.endsWith('.pdf') ||
     name.endsWith('.doc') ||
     name.endsWith('.docx') ||
-    file.type === 'application/pdf' ||
     file.type === 'application/msword' ||
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   )
+}
+
+function isPdfFile(file: File): boolean {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
 export function AppShell() {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspace)
   const compareGeneration = useRef(0)
   const compareTimer = useRef<number | null>(null)
+  const extractionGeneration = useRef<Record<DocumentType, number>>({
+    'discharge-letter': 0,
+    'medication-plan': 0,
+  })
 
   useEffect(() => {
+    const generations = extractionGeneration.current
     return () => {
       compareGeneration.current += 1
+      generations['discharge-letter'] += 1
+      generations['medication-plan'] += 1
       if (compareTimer.current !== null) {
         window.clearTimeout(compareTimer.current)
       }
@@ -69,22 +87,59 @@ export function AppShell() {
     setWorkspace((current) => showPage(current, page))
   }
 
+  function nextExtractionGeneration(type: DocumentType): number {
+    extractionGeneration.current[type] += 1
+    return extractionGeneration.current[type]
+  }
+
   function handleUpload(type: DocumentType, file: File) {
-    if (isUnsupportedFile(file)) {
+    if (isWordFile(file)) {
+      nextExtractionGeneration(type)
       setWorkspace((current) =>
-        rejectUpload(current, type, [
-          'PDF and Word files are not processed. Upload the structured JSON template.',
+        rejectUpload(cancelExtraction(current, type), type, [
+          'Word files are not processed. Upload a PDF to extract text, or the structured JSON template.',
         ]),
       )
       return
     }
+
+    if (isPdfFile(file)) {
+      const generation = nextExtractionGeneration(type)
+      cancelCompare()
+      setWorkspace((current) => beginExtraction(current, type, file.name))
+
+      void extractPdfText(file).then(
+        (result) => {
+          if (extractionGeneration.current[type] !== generation) {
+            return
+          }
+
+          setWorkspace((current) => finishExtraction(current, type, result))
+        },
+        (error: unknown) => {
+          if (extractionGeneration.current[type] !== generation) {
+            return
+          }
+
+          const message =
+            error instanceof PdfTextExtractionError
+              ? error.message
+              : 'The PDF text could not be extracted.'
+          setWorkspace((current) => failExtraction(current, type, message))
+        },
+      )
+      return
+    }
+
+    nextExtractionGeneration(type)
+    setWorkspace((current) => cancelExtraction(current, type))
 
     void file.text().then(
       (contents) => {
         const result = parseDocumentUpload(contents, type)
 
         if (!result.ok) {
-          setWorkspace((current) => rejectUpload(current, type, result.messages))
+          setWorkspace((current) => rejectUpload(clearExtractionError(current, type), type, result.messages))
           return
         }
 
@@ -92,17 +147,21 @@ export function AppShell() {
         setWorkspace((current) => acceptDocument(current, type, result.document, file.name, false))
       },
       () => {
-        setWorkspace((current) => rejectUpload(current, type, ['The file could not be read.']))
+        setWorkspace((current) =>
+          rejectUpload(clearExtractionError(current, type), type, ['The file could not be read.']),
+        )
       },
     )
   }
 
   function handleRemove(type: DocumentType) {
+    nextExtractionGeneration(type)
     cancelCompare()
     setWorkspace((current) => removeDocument(current, type))
   }
 
   function handleUseSample(type: DocumentType) {
+    nextExtractionGeneration(type)
     cancelCompare()
     const sample = type === 'discharge-letter' ? sampleDischargeLetter : sampleMedicationPlan
     setWorkspace((current) => acceptDocument(current, type, sample, sample.filename, true))

@@ -109,29 +109,75 @@ describe('workspace pages', () => {
     expect(summaryCount('Total findings')).toBe('0')
   })
 
-  it('rejects an unsupported file and leaves the findings empty', async () => {
+  it('rejects a Word file and a corrupt PDF without creating findings', async () => {
     const user = userEvent.setup()
     render(<App />)
     await openNewReview(user)
 
-    const pdf = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
-    await user.upload(screen.getByLabelText('Choose discharge letter'), pdf)
+    const word = new File(['not a document'], 'letter.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    await user.upload(screen.getByLabelText('Choose discharge letter'), word)
 
     expect((await screen.findByRole('alert')).textContent).toContain(
-      'PDF and Word files are not processed. Upload the structured JSON template.',
+      'Word files are not processed. Upload a PDF to extract text, or the structured JSON template.',
     )
     expect(screen.getAllByText('Selected file: None')).toHaveLength(2)
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(compareButton().disabled).toBe(true)
 
+    const pdf = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByLabelText('Choose discharge letter'), pdf)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('The file is not a valid PDF.')
+    expect(screen.getByText('Document: scan.pdf')).toBeTruthy()
+    expect(screen.queryByText('Status: Text extracted successfully')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+    expect(compareButton().disabled).toBe(true)
+
     await user.upload(
-      screen.getByLabelText('Choose discharge letter'),
+      screen.getByLabelText('Replace discharge letter'),
       jsonFile('plan-in-letter-slot.json', sampleMedicationPlan),
     )
     expect((await screen.findByRole('alert')).textContent).toContain(
       'This slot expects a discharge letter, and the file is a medication plan.',
     )
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+  })
+
+  it('shows extracted PDF text without treating it as review findings', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    const pdf = new File([pdfBytes([textStream('Pantoprazol 40 mg'), textStream('Ramipril 5 mg')])], 'letter.pdf', {
+      type: 'application/pdf',
+    })
+    await user.upload(screen.getByLabelText('Choose discharge letter'), pdf)
+
+    expect(await screen.findByText('Status: Text extracted successfully')).toBeTruthy()
+    expect(screen.getByText('Document: letter.pdf')).toBeTruthy()
+    expect(screen.getByText('Pages: 2')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Page 1' })).toBeTruthy()
+    expect(screen.getByText('Pantoprazol 40 mg')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Page 2' })).toBeTruthy()
+    expect(screen.getByText('Ramipril 5 mg')).toBeTruthy()
+    expect(
+      screen.getByText('This is text read from the file. It is not a review finding, and the documents have not been compared.'),
+    ).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+    expect(compareButton().disabled).toBe(true)
+
+    const blank = new File([pdfBytes([''])], 'blank.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByLabelText('Choose medication plan'), blank)
+
+    expect(await screen.findByText('Status: No extractable text was found')).toBeTruthy()
+    expect(screen.getByText('Document: blank.pdf')).toBeTruthy()
+    expect(screen.getByText('Pages: 1')).toBeTruthy()
+    expect(screen.getByText('This page has no embedded text.')).toBeTruthy()
+    expect(compareButton().disabled).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
   })
 })
 
@@ -159,6 +205,60 @@ function statusFor(title: string): HTMLSelectElement {
 
 function jsonFile(name: string, document: HealthcareDocument): File {
   return new File([JSON.stringify(document)], name, { type: 'application/json' })
+}
+
+function pdfBytes(pageStreams: readonly string[]): ArrayBuffer {
+  const parts: Uint8Array[] = []
+  let length = 0
+  const offsets: number[] = []
+
+  function push(text: string) {
+    const bytes = new TextEncoder().encode(text)
+    parts.push(bytes)
+    length += bytes.byteLength
+  }
+
+  function addObject(body: string): void {
+    offsets.push(length)
+    push(`${offsets.length} 0 obj\n${body}\nendobj\n`)
+  }
+
+  push('%PDF-1.4\n')
+  const kids = pageStreams.map((_, index) => `${4 + index * 2} 0 R`).join(' ')
+  addObject('<< /Type /Catalog /Pages 2 0 R >>')
+  addObject(`<< /Type /Pages /Count ${pageStreams.length} /Kids [${kids}] >>`)
+  addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+
+  for (const stream of pageStreams) {
+    const contentId = offsets.length + 2
+    addObject(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
+    )
+    addObject(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`)
+  }
+
+  const startxref = length
+  const size = offsets.length + 1
+  let xref = `xref\n0 ${size}\n0000000000 65535 f \n`
+  for (const offset of offsets) {
+    xref += `${String(offset).padStart(10, '0')} 00000 n \n`
+  }
+  push(xref)
+  push(`trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF`)
+
+  const bytes = new ArrayBuffer(length)
+  const view = new Uint8Array(bytes)
+  let cursor = 0
+  for (const part of parts) {
+    view.set(part, cursor)
+    cursor += part.byteLength
+  }
+  return bytes
+}
+
+function textStream(text: string): string {
+  const literal = text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)')
+  return `BT /F1 12 Tf 72 720 Td (${literal}) Tj ET\n`
 }
 
 const sharedMedication = {

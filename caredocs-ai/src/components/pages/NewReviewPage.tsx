@@ -47,8 +47,9 @@ export function NewReviewPage({
           <h1 id="new-review-title">Start New Review</h1>
           <p>Upload your documents to compare their information and identify potential discrepancies.</p>
           <p className="new-review__limit">
-            Each file must already be the structured JSON template. PDF and Word files are not read,
-            and a file that fails validation is not compared.
+            A PDF shows the text extracted from its pages. That text is not compared and it is not a clinical check.
+            Comparison still requires the JSON template. Word files are not read, and a file that fails validation is
+            not compared.
           </p>
         </header>
         <DocumentUploads
