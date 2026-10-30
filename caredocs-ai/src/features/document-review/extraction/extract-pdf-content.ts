@@ -17,12 +17,23 @@ export interface ExtractionProgress {
   message: string
 }
 
+/** Stop before recognizing more scanned pages than this. The file is not partially read. */
+export const maxOcrPages = 20
+
+/** Safety stop for one PDF read. This is not a measured performance guarantee. */
+export const maxPdfProcessingMs = 3 * 60 * 1000
+
+export const pdfReadCancelledMessage = 'Reading this PDF was cancelled. The document was not saved.'
+export const pdfReadTimeoutMessage = 'Reading this PDF took too long. The document was not saved.'
+
 export interface ExtractPdfContentOptions {
   onProgress?: (progress: ExtractionProgress) => void
   readEmbedded?: typeof extractPdfText
   openPdf?: (file: File) => Promise<OpenPdf>
   renderPage?: (pdf: PDFDocumentProxy, pageNumber: number) => Promise<HTMLCanvasElement>
   createRecognizer?: () => Promise<OcrSession>
+  signal?: AbortSignal
+  processingTimeoutMs?: number
 }
 
 /**
@@ -33,64 +44,104 @@ export async function extractPdfContent(
   file: File,
   options: ExtractPdfContentOptions = {},
 ): Promise<PdfTextExtractionResult> {
-  const readEmbedded = options.readEmbedded ?? extractPdfText
-  options.onProgress?.({ message: 'Reading embedded PDF text…' })
-  const embedded = await readEmbedded(file)
-  const pages: ExtractedPdfPage[] = embedded.pages.map((page) => ({
-    pageNumber: page.pageNumber,
-    text: page.text,
-    method: 'embedded',
-    confidence: null,
-  }))
-  const pending = pages.filter((page) => !hasUsableText(page.text))
-
-  if (pending.length === 0) {
-    return assemble(embedded.fileName, embedded.pageCount, pages)
+  const stop = new AbortController()
+  const timeoutMs = options.processingTimeoutMs ?? maxPdfProcessingMs
+  const timer = setTimeout(() => {
+    stop.abort(new PdfTextExtractionError(pdfReadTimeoutMessage))
+  }, timeoutMs)
+  const onCallerAbort = () => {
+    const reason = options.signal?.reason
+    stop.abort(reason instanceof PdfTextExtractionError ? reason : new PdfTextExtractionError(pdfReadCancelledMessage))
   }
 
-  options.onProgress?.({ message: 'Scanned pages detected' })
-  const openPdf = options.openPdf ?? openValidatedPdf
-  const renderPage = options.renderPage ?? renderPdfPage
-  const createRecognizer = options.createRecognizer ?? (() => createOcrSession())
-  const opened = await openPdf(file)
-  let recognizer: OcrSession | null = null
+  if (options.signal?.aborted) {
+    onCallerAbort()
+  } else {
+    options.signal?.addEventListener('abort', onCallerAbort)
+  }
 
   try {
-    recognizer = await createRecognizer()
+    throwIfStopped(stop.signal)
+    const readEmbedded = options.readEmbedded ?? extractPdfText
+    options.onProgress?.({ message: 'Reading embedded PDF text…' })
+    const embedded = await readEmbedded(file)
+    throwIfStopped(stop.signal)
+    const pages: ExtractedPdfPage[] = embedded.pages.map((page) => ({
+      pageNumber: page.pageNumber,
+      text: page.text,
+      method: 'embedded',
+      confidence: null,
+    }))
+    const pending = pages.filter((page) => !hasUsableText(page.text))
 
-    for (const page of pending) {
-      options.onProgress?.({
-        message: `Recognizing text on page ${page.pageNumber} of ${embedded.pageCount}`,
-      })
-      const canvas = await renderPage(opened.pdf, page.pageNumber)
+    if (pending.length === 0) {
+      return assemble(embedded.fileName, embedded.pageCount, pages)
+    }
 
-      try {
-        const recognized = await recognizer.recognize(canvas)
-        const index = pages.findIndex((item) => item.pageNumber === page.pageNumber)
-        if (index >= 0) {
-          pages[index] = {
-            pageNumber: page.pageNumber,
-            text: recognized.text,
-            method: 'ocr',
-            confidence: recognized.confidence,
+    if (pending.length > maxOcrPages) {
+      throw new PdfTextExtractionError(
+        `This PDF has ${pending.length} scanned pages. At most ${maxOcrPages} can be recognized, and the file was not partially read.`,
+      )
+    }
+
+    options.onProgress?.({ message: 'Scanned pages detected' })
+    const openPdf = options.openPdf ?? openValidatedPdf
+    const renderPage = options.renderPage ?? renderPdfPage
+    const createRecognizer = options.createRecognizer ?? (() => createOcrSession())
+    const opened = await openPdf(file)
+    let recognizer: OcrSession | null = null
+
+    try {
+      throwIfStopped(stop.signal)
+      recognizer = await createRecognizer()
+
+      for (const page of pending) {
+        throwIfStopped(stop.signal)
+        options.onProgress?.({
+          message: `Recognizing text on page ${page.pageNumber} of ${embedded.pageCount}`,
+        })
+        const canvas = await renderPage(opened.pdf, page.pageNumber)
+
+        try {
+          const recognized = await Promise.race([recognizer.recognize(canvas), stopPromise(stop.signal)])
+          const index = pages.findIndex((item) => item.pageNumber === page.pageNumber)
+          if (index >= 0) {
+            pages[index] = {
+              pageNumber: page.pageNumber,
+              text: recognized.text,
+              method: 'ocr',
+              confidence: recognized.confidence,
+            }
           }
+        } catch (error) {
+          if (error instanceof PdfTextExtractionError) {
+            throw error
+          }
+
+          throw new PdfTextExtractionError(
+            `Text recognition failed on page ${page.pageNumber}. The document was not saved.`,
+          )
+        } finally {
+          releaseCanvas(canvas)
         }
-      } finally {
-        releaseCanvas(canvas)
       }
-    }
-  } catch (error) {
-    if (error instanceof PdfTextExtractionError) {
-      throw error
+    } catch (error) {
+      if (error instanceof PdfTextExtractionError) {
+        throw error
+      }
+
+      throw new PdfTextExtractionError('Unable to process this document.')
+    } finally {
+      await recognizer?.dispose()
+      await opened.close()
     }
 
-    throw new PdfTextExtractionError('Unable to process this document.')
+    throwIfStopped(stop.signal)
+    return assemble(embedded.fileName, embedded.pageCount, pages)
   } finally {
-    await recognizer?.dispose()
-    await opened.close()
+    clearTimeout(timer)
+    options.signal?.removeEventListener('abort', onCallerAbort)
   }
-
-  return assemble(embedded.fileName, embedded.pageCount, pages)
 }
 
 function assemble(
@@ -124,4 +175,26 @@ function sourceFor(pages: readonly ExtractedPdfPage[]): PdfExtractionSource {
 
 function hasUsableText(text: string): boolean {
   return text.trim().length > 0
+}
+
+function throwIfStopped(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw stopError(signal)
+  }
+}
+
+function stopPromise(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) {
+    return Promise.reject(stopError(signal))
+  }
+
+  return new Promise((_, reject) => {
+    signal.addEventListener('abort', () => reject(stopError(signal)), { once: true })
+  })
+}
+
+function stopError(signal: AbortSignal): PdfTextExtractionError {
+  return signal.reason instanceof PdfTextExtractionError
+    ? signal.reason
+    : new PdfTextExtractionError(pdfReadCancelledMessage)
 }

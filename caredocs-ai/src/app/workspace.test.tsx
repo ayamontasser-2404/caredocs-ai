@@ -19,6 +19,7 @@ vi.mock('../features/document-review/extraction/render-pdf-page.ts', () => ({
   },
 }))
 import { extractionPageElementId } from '../components/layout/section-target.ts'
+import { maxJsonFileBytes } from '../features/document-review/template-validation.ts'
 import { reviewChecklist } from '../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../data/sampleMedicationPlan.ts'
@@ -395,6 +396,45 @@ describe('workspace pages', () => {
 
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Abweichende Medikamentenstärke' })).toBeNull()
+  })
+
+  it('does not let a slow JSON upload replace a newer file', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    let releaseSlow: (value: string) => void = () => undefined
+    const slow = jsonFile('slow.json', sampleDischargeLetter)
+    vi.spyOn(slow, 'text').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseSlow = resolve
+        }),
+    )
+
+    await user.upload(screen.getByLabelText('Choose discharge letter'), slow)
+    await user.upload(screen.getByLabelText('Choose discharge letter'), jsonFile('next.json', sampleDischargeLetter))
+
+    expect(screen.getByText('Selected file: next.json')).toBeTruthy()
+    releaseSlow(JSON.stringify(sampleDischargeLetter))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.getByText('Selected file: next.json')).toBeTruthy()
+    expect(screen.queryByText('Selected file: slow.json')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+  })
+
+  it('rejects an oversized JSON file before reading it as a document', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    const big = new File([new Uint8Array(maxJsonFileBytes + 1)], 'big.json', { type: 'application/json' })
+    await user.upload(screen.getByLabelText('Choose discharge letter'), big)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('The file is too large to read.')
+    expect(screen.getAllByText('Selected file: None')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(compareButton().disabled).toBe(true)
   })
 })
 

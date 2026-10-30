@@ -62,6 +62,10 @@ export async function openValidatedPdf(file: File): Promise<OpenPdf> {
   }
 
   const data = new Uint8Array(await file.arrayBuffer())
+  if (!hasPdfSignature(data)) {
+    throw new PdfTextExtractionError('The file is not a valid PDF.')
+  }
+
   const task = getDocument({
     data,
     verbosity: VerbosityLevel.ERRORS,
@@ -101,21 +105,26 @@ export async function extractPdfText(file: File): Promise<PdfTextExtractionResul
 
     for (let pageNumber = 1; pageNumber <= opened.pdf.numPages; pageNumber += 1) {
       const page = await opened.pdf.getPage(pageNumber)
-      const content = await page.getTextContent()
-      let text = ''
 
-      for (const item of content.items) {
-        if (!('str' in item) || typeof item.str !== 'string') {
-          continue
+      try {
+        const content = await page.getTextContent()
+        let text = ''
+
+        for (const item of content.items) {
+          if (!('str' in item) || typeof item.str !== 'string') {
+            continue
+          }
+
+          text += item.str
+          if (item.hasEOL) {
+            text += '\n'
+          }
         }
 
-        text += item.str
-        if (item.hasEOL) {
-          text += '\n'
-        }
+        pages.push({ pageNumber, text })
+      } finally {
+        releasePdfPage(page)
       }
-
-      pages.push({ pageNumber, text })
     }
 
     const fullText = pages.map((page) => page.text).join('\n')
@@ -132,6 +141,25 @@ export async function extractPdfText(file: File): Promise<PdfTextExtractionResul
     throw toExtractionError(error)
   } finally {
     await opened.close()
+  }
+}
+
+function hasPdfSignature(data: Uint8Array): boolean {
+  const length = Math.min(data.byteLength, 1024)
+  let prefix = ''
+
+  for (let index = 0; index < length; index += 1) {
+    prefix += String.fromCharCode(data[index] ?? 0)
+  }
+
+  return prefix.includes('%PDF-')
+}
+
+export function releasePdfPage(page: { cleanup?: (resetStats?: boolean) => boolean }): void {
+  try {
+    page.cleanup?.()
+  } catch {
+    // Releasing a page cache must not hide the extraction result or its error.
   }
 }
 

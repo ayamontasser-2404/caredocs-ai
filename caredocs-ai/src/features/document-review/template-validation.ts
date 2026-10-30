@@ -18,6 +18,9 @@ export const dischargeLetterTemplate = [
   { id: 'follow-up', title: 'Empfehlungen zur Weiterbehandlung und Nachsorge' },
 ] as const satisfies readonly TemplateSection[]
 
+/** Reject a JSON upload above this size before its text is parsed. */
+export const maxJsonFileBytes = 1024 * 1024
+
 export const medicationPlanTemplate = [
   { id: 'patient', title: 'Patientendaten' },
   { id: 'medication', title: 'Medikamentenübersicht' },

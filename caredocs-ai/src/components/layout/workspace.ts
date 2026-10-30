@@ -1,6 +1,7 @@
 import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
 import type { ComparisonBlockReason } from '../../features/document-review/comparison/prepare-comparison-input.ts'
+import { ComparisonInputError } from '../../features/document-review/comparison/assertions.ts'
 import { prepareComparisonInput } from '../../features/document-review/comparison/prepare-comparison-input.ts'
 import { extractDocumentData } from '../../features/document-review/extraction/extract-document-data.ts'
 import type {
@@ -281,7 +282,8 @@ export function completeCompare(
       [prepared.letter, prepared.plan],
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'The documents could not be compared.'
+    const message =
+      error instanceof ComparisonInputError ? error.message : 'The documents could not be compared.'
     return failCompare(state, message)
   }
 }

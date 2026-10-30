@@ -1,6 +1,11 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { describe, expect, it, vi } from 'vitest'
-import { extractPdfContent } from './extract-pdf-content.ts'
+import {
+  extractPdfContent,
+  maxOcrPages,
+  pdfReadCancelledMessage,
+  pdfReadTimeoutMessage,
+} from './extract-pdf-content.ts'
 import { PdfTextExtractionError } from './extract-pdf-text.ts'
 import type { OcrSession } from './run-ocr.ts'
 
@@ -156,6 +161,108 @@ describe('extractPdfContent', () => {
       }),
     ).rejects.toThrow(PdfTextExtractionError)
 
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('names the failed page and does not keep a partial document or the recognizer error', async () => {
+    const close = vi.fn(async () => undefined)
+    const dispose = vi.fn(async () => undefined)
+
+    await expect(
+      extractPdfContent(pdfFile('scan.pdf', makePdf(['', ''])), {
+        renderPage: async () => document.createElement('canvas'),
+        openPdf: async () => ({ pdf: {} as PDFDocumentProxy, close }),
+        createRecognizer: async () => ({
+          recognize: async () => {
+            throw new Error('Erika Beispiel')
+          },
+          dispose,
+        }),
+      }),
+    ).rejects.toThrow('Text recognition failed on page 1. The document was not saved.')
+
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to recognize more scanned pages than the limit', async () => {
+    const createRecognizer = vi.fn()
+
+    await expect(
+      extractPdfContent(pdfFile('many-scans.pdf', makePdf(Array.from({ length: maxOcrPages + 1 }, () => ''))), {
+        createRecognizer,
+      }),
+    ).rejects.toThrow(
+      `This PDF has ${maxOcrPages + 1} scanned pages. At most ${maxOcrPages} can be recognized, and the file was not partially read.`,
+    )
+
+    expect(createRecognizer).not.toHaveBeenCalled()
+  })
+
+  it('stops a hung recognition without saving a partial result', async () => {
+    const close = vi.fn(async () => undefined)
+    const dispose = vi.fn(async () => undefined)
+
+    await expect(
+      extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+        processingTimeoutMs: 20,
+        renderPage: async () => document.createElement('canvas'),
+        openPdf: async () => ({ pdf: {} as PDFDocumentProxy, close }),
+        createRecognizer: async () => ({
+          recognize: () => new Promise(() => undefined),
+          dispose,
+        }),
+      }),
+    ).rejects.toThrow(pdfReadTimeoutMessage)
+
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels an in-progress read when the caller aborts', async () => {
+    const close = vi.fn(async () => undefined)
+    const dispose = vi.fn(async () => undefined)
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+        signal: controller.signal,
+        processingTimeoutMs: 60_000,
+        openPdf: async () => ({ pdf: {} as PDFDocumentProxy, close }),
+        createRecognizer: async () => ({
+          recognize: async () => ({ text: 'unused', confidence: 1 }),
+          dispose,
+        }),
+      }),
+    ).rejects.toThrow(pdfReadCancelledMessage)
+
+    expect(dispose).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('releases the PDF and recognizer when a running recognition is cancelled', async () => {
+    const close = vi.fn(async () => undefined)
+    const dispose = vi.fn(async () => undefined)
+    const controller = new AbortController()
+
+    await expect(
+      extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+        signal: controller.signal,
+        processingTimeoutMs: 60_000,
+        renderPage: async () => document.createElement('canvas'),
+        openPdf: async () => ({ pdf: {} as PDFDocumentProxy, close }),
+        createRecognizer: async () => ({
+          recognize: () => {
+            controller.abort()
+            return new Promise(() => undefined)
+          },
+          dispose,
+        }),
+      }),
+    ).rejects.toThrow(pdfReadCancelledMessage)
+
+    expect(dispose).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
   })
 })

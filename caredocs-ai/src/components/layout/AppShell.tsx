@@ -3,9 +3,14 @@ import { reviewChecklist } from '../../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
 import { setFindingStatus, setReviewStatus } from '../../features/document-review/review-session.ts'
-import { extractPdfContent } from '../../features/document-review/extraction/extract-pdf-content.ts'
+import {
+  extractPdfContent,
+  maxPdfProcessingMs,
+  pdfReadCancelledMessage,
+  pdfReadTimeoutMessage,
+} from '../../features/document-review/extraction/extract-pdf-content.ts'
 import { PdfTextExtractionError } from '../../features/document-review/extraction/extract-pdf-text.ts'
-import { parseDocumentUpload } from '../../features/document-review/template-validation.ts'
+import { maxJsonFileBytes, parseDocumentUpload } from '../../features/document-review/template-validation.ts'
 import type { DocumentType } from '../../types/document.ts'
 import type { FindingStatus, ReviewStatus } from '../../types/review.ts'
 import { HomePage } from '../pages/HomePage.tsx'
@@ -58,13 +63,28 @@ export function AppShell() {
     'discharge-letter': 0,
     'medication-plan': 0,
   })
+  const extractionAbort = useRef<Record<DocumentType, AbortController | null>>({
+    'discharge-letter': null,
+    'medication-plan': null,
+  })
+  const extractionTimer = useRef<Record<DocumentType, number | null>>({
+    'discharge-letter': null,
+    'medication-plan': null,
+  })
 
   useEffect(() => {
     const generations = extractionGeneration.current
+    const aborts = extractionAbort.current
+    const timers = extractionTimer.current
     return () => {
       compareGeneration.current += 1
-      generations['discharge-letter'] += 1
-      generations['medication-plan'] += 1
+      for (const type of ['discharge-letter', 'medication-plan'] as const) {
+        generations[type] += 1
+        aborts[type]?.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+        if (timers[type] !== null) {
+          window.clearTimeout(timers[type])
+        }
+      }
       if (compareTimer.current !== null) {
         window.clearTimeout(compareTimer.current)
       }
@@ -83,9 +103,28 @@ export function AppShell() {
     setWorkspace((current) => showPage(current, page))
   }
 
-  function nextExtractionGeneration(type: DocumentType): number {
+  function nextExtractionGeneration(type: DocumentType): { generation: number; signal: AbortSignal } {
+    const previousTimer = extractionTimer.current[type]
+    if (previousTimer !== null) {
+      window.clearTimeout(previousTimer)
+      extractionTimer.current[type] = null
+    }
+
+    extractionAbort.current[type]?.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+    const controller = new AbortController()
+    extractionAbort.current[type] = controller
     extractionGeneration.current[type] += 1
-    return extractionGeneration.current[type]
+    return { generation: extractionGeneration.current[type], signal: controller.signal }
+  }
+
+  function settleExtraction(type: DocumentType, generation: number): boolean {
+    const timer = extractionTimer.current[type]
+    if (extractionGeneration.current[type] === generation && timer !== null) {
+      window.clearTimeout(timer)
+      extractionTimer.current[type] = null
+    }
+
+    return extractionGeneration.current[type] === generation
   }
 
   function handleUpload(type: DocumentType, file: File) {
@@ -100,11 +139,16 @@ export function AppShell() {
     }
 
     if (isPdfFile(file)) {
-      const generation = nextExtractionGeneration(type)
+      const { generation, signal } = nextExtractionGeneration(type)
+      const controller = extractionAbort.current[type]
+      extractionTimer.current[type] = window.setTimeout(() => {
+        controller?.abort(new PdfTextExtractionError(pdfReadTimeoutMessage))
+      }, maxPdfProcessingMs)
       cancelCompare()
       setWorkspace((current) => beginExtraction(current, type, file.name))
 
       void extractPdfContent(file, {
+        signal,
         onProgress(progress) {
           if (extractionGeneration.current[type] !== generation) {
             return
@@ -114,14 +158,14 @@ export function AppShell() {
         },
       }).then(
         (result) => {
-          if (extractionGeneration.current[type] !== generation) {
+          if (!settleExtraction(type, generation)) {
             return
           }
 
           setWorkspace((current) => finishExtraction(current, type, result))
         },
         (error: unknown) => {
-          if (extractionGeneration.current[type] !== generation) {
+          if (!settleExtraction(type, generation)) {
             return
           }
 
@@ -135,11 +179,22 @@ export function AppShell() {
       return
     }
 
-    nextExtractionGeneration(type)
+    const { generation } = nextExtractionGeneration(type)
     setWorkspace((current) => cancelExtraction(current, type))
+
+    if (file.size > maxJsonFileBytes) {
+      setWorkspace((current) =>
+        rejectUpload(clearExtractionError(current, type), type, ['The file is too large to read.']),
+      )
+      return
+    }
 
     void file.text().then(
       (contents) => {
+        if (extractionGeneration.current[type] !== generation) {
+          return
+        }
+
         const result = parseDocumentUpload(contents, type)
 
         if (!result.ok) {
@@ -151,6 +206,10 @@ export function AppShell() {
         setWorkspace((current) => acceptDocument(current, type, result.document, file.name, false))
       },
       () => {
+        if (extractionGeneration.current[type] !== generation) {
+          return
+        }
+
         setWorkspace((current) =>
           rejectUpload(clearExtractionError(current, type), type, ['The file could not be read.']),
         )

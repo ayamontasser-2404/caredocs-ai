@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { PdfTextExtractionError } from './extract-pdf-text.ts'
+import { PdfTextExtractionError, releasePdfPage } from './extract-pdf-text.ts'
 
 /** About 144 DPI. Higher scales use more memory without a matching gain for this phase. */
 export const ocrPageScale = 2
@@ -23,6 +23,7 @@ export async function renderPdfPage(pdf: PDFDocumentProxy, pageNumber: number): 
     canvas.width = width
     canvas.height = height
     await page.render({ canvas, viewport }).promise
+    releasePdfPage(page)
     return canvas
   } catch (error) {
     releaseCanvas(canvas)
