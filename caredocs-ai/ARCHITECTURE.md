@@ -163,7 +163,7 @@ Pure session functions. `createReviewSession` requires exactly two documents, ca
 
 `extractPdfText` reads embedded PDF.js text, one page at a time. `extractPdfContent` calls that first. A page whose text trims to empty is rendered with PDF.js and recognized by one Tesseract.js worker (`deu`). Pages that already have text are not rendered. The result records `embedded`, `ocr`, or `mixed`, plus page method and recognizer confidence when Tesseract returns it. A render or OCR failure throws `PdfTextExtractionError` and is not stored as an empty success. Limits are 20 MiB and 50 pages. The worker and the PDF document are closed when the read finishes. The page image is not sent to an OCR API. Tesseract.js may download German language data and its WASM core on first use.
 
-`extractDocumentData` reads that page text with labeled rules. It does not call a model. Field names follow `PatientIdentity` and `MedicationEntry`, but a missing field stays missing, so the result is not a `HealthcareDocument`. Each found value keeps its source span, page number, and text source. A normalized date is stored only when the source date has one valid reading. Dotted numeric dates are German day-month-year. A slash or hyphen date with both numbers at most 12 is left unparsed. Two different strengths for the same medication name stay ambiguous and neither is selected. Strength is not copied into dosage. The result is not passed to `compareDocuments`.
+`extractDocumentData` reads that page text with labeled rules. It does not call a model. Field names follow `PatientIdentity` and `MedicationEntry`, but a missing field stays missing, so the result is not a `HealthcareDocument`. Each found value keeps its source span, page number, and text source. A normalized date is stored only when the source date has one valid reading. Dotted numeric dates are German day-month-year. A slash or hyphen date with both numbers at most 12 is left unparsed. Two different strengths for the same medication name stay ambiguous and neither is selected. Strength is not copied into dosage. The result is not passed to `compareDocuments` until `prepareComparisonInput` accepts it.
 
 ### `features/document-review/verification/`
 
@@ -171,7 +171,11 @@ Pure session functions. `createReviewSession` requires exactly two documents, ca
 
 Structural checks cover a required empty value, a name that is not one to six letter-words, a date `interpretDate` cannot read, a strength that is not a number plus a supported unit, an unsupported document type, and a page number outside the PDF. Uncertainty covers an ambiguous field, an unparsed field, missing source text, and OCR text. OCR confidence is copied only when the page has a finite score. These categories are not combined into one success flag, and a valid structure is not a clinical confirmation.
 
-`eligibleForComparison` is true only when every required field has source text, no structural problem, and status `confirmed`. Required fields are patient name, date of birth, and each extracted medication's name and strength. Patient id, dosage, instructions, route, frequency, other dates, follow-up, treatment, and document metadata are optional. A present optional field with a structural problem blocks readiness. An absent optional field does not. The flag does not call `compareDocuments` and does not create a `HealthcareDocument`. There is no reviewer identity, timestamp, audit log, or persistence. Confirmation is not an electronic signature and is not a regulatory-compliance claim.
+`eligibleForComparison` is true only when every required field has source text, no structural problem, and status `confirmed`. Required fields are patient name, date of birth, and each extracted medication's name and strength. Patient id, dosage, instructions, route, frequency, other dates, follow-up, treatment, and document metadata are optional. A present optional field with a structural problem blocks readiness. An absent optional field does not. There is no reviewer identity, timestamp, audit log, or persistence. Confirmation is not an electronic signature and is not a regulatory-compliance claim.
+
+### `features/document-review/comparison/prepare-comparison-input.ts`
+
+`prepareComparisonInput` is the only path from a PDF review into `compareDocuments`. A slot that already holds a JSON `HealthcareDocument` is passed through. A PDF slot is accepted when Phase 4 reports `eligibleForComparison` and every extracted field that is present has been confirmed. The adapter copies confirmed reviewed values into a `HealthcareDocument`. Source page text stays in the `patient`, `medication`, `follow-up`, and `treatment` sections. The original extraction is not overwritten. A missing patient id or dosage stays empty. The comparison engine skips those blank optional fields instead of reporting a discrepancy or inventing a value. Name, date of birth, and strength are still required. An ineligible pair returns reason codes and does not call `compareDocuments`. Editing or confirming a field clears the previous findings.
 
 ### `types/`
 
@@ -194,14 +198,15 @@ Home (initial page)
             │    ├─ Word: rejectUpload, no parse, previous document kept
             │    ├─ PDF: extractPdfContent, then extractDocumentData, document stays null
             │    │    ├─ createDocumentVerification keeps the extraction and adds review state
-            │    │    ├─ a field edit or confirmation does not enable Compare Documents
+            │    │    ├─ prepareComparisonInput accepts confirmed fields or returns block reasons
             │    │    └─ failure, no readable text, or ambiguous fields do not create findings
             │    ├─ JSON parse + validateDocumentTemplate
             │    ├─ invalid: rejectUpload, previous document and review kept
             │    └─ valid: acceptDocument, previous review cleared
             ├─ Remove: removeDocument clears that slot and the review
             └─ Compare Documents, only when canCompare is true
-                 └─ beginCompare, then createReviewSession
+                 ├─ ineligible: block reasons, no findings
+                 └─ eligible: beginCompare, then createReviewSession
                       └─ compareDocuments(letter, plan, reviewChecklist)
                            ├─ enabled patient-identity rule
                            ├─ enabled medication rule
@@ -212,7 +217,7 @@ Home (initial page)
 
 A comparison that throws `ComparisonInputError` calls `failCompare`. The findings area shows that message. It does not show the pre-comparison empty state or the zero-findings message.
 
-### PDF text that is read today, and what is still not built
+### PDF text through comparison
 
 ```text
 PDF upload
@@ -224,11 +229,13 @@ PDF upload
                       └─ extractDocumentData reads labeled fields and page evidence
                            └─ createDocumentVerification
                                 ├─ structural checks, uncertainty, and per-field confirmation stay separate
-                                ├─ eligibleForComparison is a flag only
-                                └─ Not a HealthcareDocument, not a finding, and not compared
+                                ├─ eligibleForComparison covers required fields
+                                └─ prepareComparisonInput
+                                     ├─ eligible: compareDocuments
+                                     └─ ineligible: block reasons, no findings
 ```
 
-Schema validation of a PDF into a `HealthcareDocument`, and comparison of PDF text, are not implemented. A reviewer can correct and confirm fields in the current browser session. That confirmation is not an electronic signature, and it is dropped on refresh. Recognizer confidence is not a clinical check. Browser processing is not a regulatory-compliance claim.
+A reviewer can correct and confirm fields in the current browser session. That confirmation is not an electronic signature, and it is dropped on refresh. Recognizer confidence is not a clinical check. Browser processing is not a regulatory-compliance claim. A detected difference is not a confirmed clinical error.
 
 ## 6. Domain and comparison principles
 
@@ -237,7 +244,7 @@ Schema validation of a PDF into a `HealthcareDocument`, and comparison of PDF te
 3. **Field-level comparison:** medication name, strength, dosage, and administration instructions remain independently reviewable.
 4. **Conservative matching:** do not silently equate brand/generic names or infer equivalence without an explicit validated mapping.
 5. **Missing is not false:** an absent value is not automatically equal to a present value, and absence in one document does not prove discontinuation.
-6. **Evidence provenance:** each finding should retain traceable references to source document/section and the relevant original value or excerpt where available.
+6. **Evidence provenance:** each finding retains the source document, section, and excerpt from `compareDocuments`. Page numbers and source quotes are read from the matched reviewed PDF field when one exists. They are not invented for JSON or for a field that has no usable page.
 7. **Human review:** findings identify potential discrepancies; they do not select the authoritative value or make treatment recommendations.
 8. **Checklist-driven checks:** only run checks configured/enabled by the existing checklist.
 9. **No fabricated evidence:** never invent excerpts, page numbers, or source fields.

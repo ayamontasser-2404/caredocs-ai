@@ -1,3 +1,6 @@
+import { useMemo } from 'react'
+import type { ComparisonBlockReason } from '../../features/document-review/comparison/prepare-comparison-input.ts'
+import type { VerificationSource } from '../../features/document-review/findings/present-finding.ts'
 import type { DocumentType, HealthcareDocument } from '../../types/document.ts'
 import type { FindingEvidence, FindingStatus, ReviewState, ReviewStatus } from '../../types/review.ts'
 import { DocumentSurface } from '../layout/DocumentSurface.tsx'
@@ -11,6 +14,7 @@ interface NewReviewPageProps {
   phase: ComparisonPhase
   review: ReviewState | null
   compareError: string | null
+  blockReasons: readonly ComparisonBlockReason[]
   documents: readonly HealthcareDocument[]
   activeEvidence: FindingEvidence | null
   canCompare: boolean
@@ -31,6 +35,7 @@ export function NewReviewPage({
   phase,
   review,
   compareError,
+  blockReasons,
   documents,
   activeEvidence,
   canCompare,
@@ -44,6 +49,14 @@ export function NewReviewPage({
   onFindingStatusChange,
   onEvidenceSelect,
 }: NewReviewPageProps) {
+  const sources = useMemo<readonly VerificationSource[]>(
+    () => [
+      { type: 'discharge-letter', verification: letter.extraction.verification },
+      { type: 'medication-plan', verification: plan.extraction.verification },
+    ],
+    [letter.extraction.verification, plan.extraction.verification],
+  )
+
   return (
     <div className="new-review">
       <section className="new-review__upload" aria-labelledby="new-review-title">
@@ -52,9 +65,9 @@ export function NewReviewPage({
           <p>Upload your documents to compare their information and identify potential discrepancies.</p>
           <p className="new-review__limit">
             A PDF shows text from its pages. Pages without embedded text are recognized in the browser. Labeled
-            fields can be corrected and confirmed in this session. Confirmation is not an electronic signature, and
-            it does not compare the PDF. Comparison still requires the JSON template. Word files are not read, and a
-            file that fails validation is not compared.
+            fields can be corrected and confirmed in this session. Confirmation is not an electronic signature.
+            Compare Documents uses confirmed PDF fields, or a JSON template, when both documents are ready. Word
+            files are not read, and a file that fails validation is not compared.
           </p>
         </header>
         <DocumentUploads
@@ -70,19 +83,29 @@ export function NewReviewPage({
           <button type="button" className="button-primary" disabled={!canCompare} onClick={onCompare}>
             {phase === 'comparing' ? 'Comparing documents…' : 'Compare Documents'}
           </button>
+          {letter.extraction.status === 'extracting' || plan.extraction.status === 'extracting' ? (
+            <p role="status">A document is still being read.</p>
+          ) : null}
         </div>
       </section>
       <ReviewPanel
         phase={phase}
         review={review}
         compareError={compareError}
+        blockReasons={blockReasons}
         documents={documents}
+        sources={sources}
         activeEvidence={activeEvidence}
         onReviewStatusChange={onReviewStatusChange}
         onFindingStatusChange={onFindingStatusChange}
         onEvidenceSelect={onEvidenceSelect}
       />
-      <DocumentSurface documents={documents} activeEvidence={activeEvidence} />
+      <DocumentSurface
+        documents={documents}
+        activeEvidence={activeEvidence}
+        review={review}
+        sources={sources}
+      />
     </div>
   )
 }

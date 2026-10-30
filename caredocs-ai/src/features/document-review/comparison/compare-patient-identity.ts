@@ -14,11 +14,12 @@ export function comparePatientIdentity(
   documentB: HealthcareDocument,
 ): ReviewFinding[] {
   const findings: ReviewFinding[] = []
-  const idMatches = sameText(documentA.patient.patientId, documentB.patient.patientId)
+  const idsPresent = isPresent(documentA.patient.patientId) && isPresent(documentB.patient.patientId)
+  const idMatches = idsPresent && sameText(documentA.patient.patientId, documentB.patient.patientId)
   const dobMatches = sameText(documentA.patient.dateOfBirth, documentB.patient.dateOfBirth)
   const nameMatches = sameText(documentA.patient.name, documentB.patient.name)
 
-  if (!idMatches) {
+  if (idsPresent && !idMatches) {
     findings.push(
       identityFinding({
         id: 'FIND-IDENTITY-ID',
@@ -71,6 +72,10 @@ export function comparePatientIdentity(
 
 function sameText(left: string, right: string): boolean {
   return normalizeText(left) === normalizeText(right)
+}
+
+function isPresent(value: string): boolean {
+  return value.trim().length > 0
 }
 
 function nameDescription(idMatches: boolean, dobMatches: boolean): string {

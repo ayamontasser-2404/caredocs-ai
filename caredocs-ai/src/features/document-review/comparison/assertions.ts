@@ -31,7 +31,9 @@ function assertDocument(document: HealthcareDocument, label: string): void {
     throw new ComparisonInputError(`${label} is missing a patient.`)
   }
 
-  if (!isPresentText(document.patient.patientId)) {
+  // An empty patient id is allowed. PDF verification treats it as optional.
+  // A missing property is still rejected. Identity comparison skips a blank id.
+  if (typeof document.patient.patientId !== 'string') {
     throw new ComparisonInputError(`${label} is missing a patient id.`)
   }
 
@@ -69,7 +71,9 @@ function assertMedication(medication: MedicationEntry, label: string): void {
     throw new ComparisonInputError(`${label} contains a medication without a strength.`)
   }
 
-  if (!isPresentText(medication.dosage)) {
+  // An empty dosage is allowed. PDF verification treats it as optional.
+  // Medication comparison then skips dosage instead of inventing one.
+  if (typeof medication.dosage !== 'string') {
     throw new ComparisonInputError(`${label} contains a medication without a dosage.`)
   }
 }

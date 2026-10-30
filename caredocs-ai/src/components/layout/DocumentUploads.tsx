@@ -59,8 +59,9 @@ export function DocumentUploads({
             <h2>{copy.title}</h2>
             <p>{copy.description}</p>
             <p className="upload-card__limit">
-              A PDF is read in the browser. Pages without embedded text are recognized with OCR. That text is not
-              compared. Comparison still requires the JSON template. Word files are not processed.
+              A PDF is read in the browser. Pages without embedded text are recognized with OCR. Confirmed fields
+              can be compared when both documents are ready. Confirmation is not an electronic signature. Word files
+              are not processed.
             </p>
             <p className="upload-card__hint">Required sections: {sections}</p>
             <label className="button-secondary upload-card__file" htmlFor={`${type}-file`}>

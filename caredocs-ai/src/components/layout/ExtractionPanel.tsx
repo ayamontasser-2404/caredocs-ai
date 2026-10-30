@@ -1,6 +1,7 @@
 import type { DocumentType } from '../../types/document.ts'
 import { FieldVerification } from './FieldVerification.tsx'
 import { StructuredFields } from './StructuredFields.tsx'
+import { extractionPageElementId } from './section-target.ts'
 import type { SlotExtraction } from './workspace.ts'
 
 interface ExtractionPanelProps {
@@ -37,7 +38,16 @@ export function ExtractionPanel({ documentType, extraction, onEditField, onConfi
             This text is unverified. It is not a review finding, and the documents have not been compared.
           </p>
           {result.pages.map((page) => (
-            <div className="extraction-panel__page" key={page.pageNumber}>
+            <div
+              className="extraction-panel__page"
+              id={
+                extraction.fileName
+                  ? extractionPageElementId(documentType, extraction.fileName, page.pageNumber)
+                  : undefined
+              }
+              key={page.pageNumber}
+              tabIndex={-1}
+            >
               <h4>Page {page.pageNumber}</h4>
               {page.method ? <p>{page.method === 'ocr' ? 'OCR' : 'Embedded text'}</p> : null}
               {page.method === 'ocr' && typeof page.confidence === 'number' ? (

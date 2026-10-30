@@ -45,7 +45,8 @@ export interface ReviewedField {
 
 /**
  * Review of one extracted PDF.
- * `eligibleForComparison` does not mean the PDF is compared. Phase 5 has not started.
+ * `eligibleForComparison` means the required fields on this PDF are confirmed.
+ * `prepareComparisonInput` checks the pair before `compareDocuments` runs.
  */
 export interface DocumentVerification {
   fileName: string

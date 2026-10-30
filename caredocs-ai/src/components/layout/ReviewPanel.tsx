@@ -1,15 +1,16 @@
 import { useState } from 'react'
+import type { ComparisonBlockReason } from '../../features/document-review/comparison/prepare-comparison-input.ts'
+import {
+  countFindings,
+  findingMatchesFilter,
+  presentFinding,
+  type FindingFilter,
+  type VerificationSource,
+} from '../../features/document-review/findings/present-finding.ts'
 import type { HealthcareDocument } from '../../types/document.ts'
-import type {
-  FindingEvidence,
-  FindingSeverity,
-  FindingStatus,
-  ReviewFinding,
-  ReviewState,
-  ReviewStatus,
-} from '../../types/review.ts'
+import type { FindingEvidence, FindingStatus, ReviewFinding, ReviewState, ReviewStatus } from '../../types/review.ts'
+import { FindingCard } from './FindingCard.tsx'
 import type { ComparisonPhase } from './workspace.ts'
-import { isSameEvidence } from './section-target.ts'
 
 const reviewStatusOptions = [
   { value: 'not-started', label: 'Not started' },
@@ -17,31 +18,21 @@ const reviewStatusOptions = [
   { value: 'completed', label: 'Completed' },
 ] as const satisfies readonly { value: ReviewStatus; label: string }[]
 
-const findingStatusOptions = [
-  { value: 'open', label: 'Open' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'follow-up-required', label: 'Follow-up required' },
-] as const satisfies readonly { value: FindingStatus; label: string }[]
-
-const severityLabel: Record<FindingSeverity, string> = {
-  high: 'High',
-  'review-required': 'Review required',
-  informational: 'Informational',
-}
-
-const categoryLabel = {
-  medication: 'Medication',
-  'patient-identity': 'Patient identity',
-  completeness: 'Completeness',
-  documentation: 'Documentation',
-} as const
+const filters = [
+  { id: 'all', label: 'All' },
+  { id: 'needs-review', label: 'Needs review' },
+  { id: 'mismatch', label: 'Mismatches' },
+  { id: 'missing', label: 'Missing information' },
+  { id: 'reviewed', label: 'Reviewed' },
+] as const satisfies readonly { id: FindingFilter; label: string }[]
 
 interface ReviewPanelProps {
   phase: ComparisonPhase
   review: ReviewState | null
   compareError: string | null
+  blockReasons: readonly ComparisonBlockReason[]
   documents: readonly HealthcareDocument[]
+  sources: readonly VerificationSource[]
   activeEvidence: FindingEvidence | null
   onReviewStatusChange: (status: ReviewStatus) => void
   onFindingStatusChange: (findingId: string, status: FindingStatus) => void
@@ -52,14 +43,26 @@ export function ReviewPanel({
   phase,
   review,
   compareError,
+  blockReasons,
   documents,
+  sources,
   activeEvidence,
   onReviewStatusChange,
   onFindingStatusChange,
   onEvidenceSelect,
 }: ReviewPanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [filter, setFilter] = useState<FindingFilter>('all')
+  const [seenPhase, setSeenPhase] = useState(phase)
+  if (seenPhase !== phase) {
+    setSeenPhase(phase)
+    setFilter('all')
+    setExpandedId(null)
+  }
   const findings = phase === 'ready' && review ? review.findings : []
+  const presentations = findings.map((finding) => presentFinding(finding, documents, sources))
+  const counts = countFindings(presentations)
+  const visible = presentations.filter((item) => findingMatchesFilter(item, filter))
 
   return (
     <section className="review-panel" aria-labelledby="review-findings-title" aria-busy={phase === 'comparing'}>
@@ -73,6 +76,17 @@ export function ReviewPanel({
         <p className="review-panel__note" role="alert">
           {compareError ?? 'The documents could not be compared.'}
         </p>
+      ) : null}
+      {phase === 'blocked' ? (
+        <div className="findings-empty">
+          <h3>Comparison was not run</h3>
+          <p>The documents are not ready. This is not a result of zero differences.</p>
+          <ul className="upload-card__errors">
+            {blockReasons.map((reason) => (
+              <li key={`${reason.document}-${reason.code}-${reason.message}`}>{reason.message}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {phase === 'idle' ? (
         <div className="findings-empty">
@@ -94,113 +108,73 @@ export function ReviewPanel({
           ) : null}
           {findings.length > 0 ? (
             <>
-          <div className="review-status-row">
-            <label htmlFor="review-status">Review status</label>
-            <select
-              className="review-panel__select"
-              id="review-status"
-              value={review.status}
-              onChange={(event) => {
-                const next = reviewStatusOptions.find((option) => option.value === event.target.value)
-                if (next) {
-                  onReviewStatusChange(next.value)
-                }
-              }}
-            >
-              {reviewStatusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {review.status === 'completed' ? (
-            <p className="review-panel__note">
-              This review is completed. Each finding keeps the status selected below.
-            </p>
-          ) : null}
-          <ol className="review-findings">
-            {findings.map((finding) => {
-              const expanded = expandedId === finding.id
-              const statusLabel =
-                findingStatusOptions.find((option) => option.value === finding.status)?.label ??
-                finding.status
-
-              return (
-                <li key={finding.id} id={`finding-${finding.id}`}>
-                  <article className={`review-finding review-finding--${finding.severity}`}>
-                    <h3 className="review-finding__title" id={`finding-title-${finding.id}`}>
-                      {finding.title}
-                    </h3>
-                    <div className="review-finding__meta">
-                      <span className="review-finding__category">{categoryLabel[finding.category]}</span>
-                      <span className={`review-finding__severity review-finding__severity--${finding.severity}`}>
-                        {severityLabel[finding.severity]}
-                      </span>
-                      <span className={`status-pill status-pill--${finding.status}`}>{statusLabel}</span>
-                    </div>
-                    <label className="review-finding__status-label" htmlFor={`finding-status-${finding.id}`}>
-                      Status for {finding.title}
-                    </label>
-                    <select
-                      className={`review-panel__select review-finding__status review-finding__status--${finding.status}`}
-                      id={`finding-status-${finding.id}`}
-                      value={finding.status}
-                      onChange={(event) => {
-                        const next = findingStatusOptions.find(
-                          (option) => option.value === event.target.value,
+              <div className="review-status-row">
+                <label htmlFor="review-status">Review status</label>
+                <select
+                  className="review-panel__select"
+                  id="review-status"
+                  value={review.status}
+                  onChange={(event) => {
+                    const next = reviewStatusOptions.find((option) => option.value === event.target.value)
+                    if (next) {
+                      onReviewStatusChange(next.value)
+                    }
+                  }}
+                >
+                  {reviewStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {review.status === 'completed' ? (
+                <p className="review-panel__note">
+                  This review is completed. Each finding keeps the status selected below.
+                </p>
+              ) : null}
+              <p className="review-panel__note">
+                Finding status stays in this browser session. Refreshing the page clears it. Changing a finding
+                status does not change extracted values and does not decide which value is correct.
+              </p>
+              <div className="finding-filters" role="group" aria-label="Filter findings">
+                {filters.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="button-secondary"
+                    aria-pressed={filter === item.id}
+                    onClick={() => setFilter(item.id)}
+                  >
+                    {item.label} ({counts[item.id]})
+                  </button>
+                ))}
+              </div>
+              {filter !== 'all' ? (
+                <p role="status">
+                  Showing {visible.length} of {findings.length} findings.
+                </p>
+              ) : null}
+              {visible.length === 0 ? <p>No findings match this filter.</p> : null}
+              <ol className="review-findings">
+                {visible.map((presentation) => (
+                  <li key={presentation.finding.id} id={`finding-${presentation.finding.id}`}>
+                    <FindingCard
+                      presentation={presentation}
+                      documents={documents}
+                      expanded={expandedId === presentation.finding.id}
+                      activeEvidence={activeEvidence}
+                      onToggle={() =>
+                        setExpandedId((current) =>
+                          current === presentation.finding.id ? null : presentation.finding.id,
                         )
-                        if (next) {
-                          onFindingStatusChange(finding.id, next.value)
-                        }
-                      }}
-                    >
-                      {findingStatusOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p>{finding.description}</p>
-                    <p className="review-finding__rationale">{finding.rationale}</p>
-                    <button
-                      type="button"
-                      className="button-secondary"
-                      aria-expanded={expanded}
-                      aria-controls={`evidence-${finding.id}`}
-                      onClick={() => setExpandedId(expanded ? null : finding.id)}
-                    >
-                      {expanded ? 'Hide evidence' : 'Show evidence'} for {finding.title}
-                    </button>
-                    {expanded ? (
-                      <div className="review-evidence" id={`evidence-${finding.id}`}>
-                        {finding.evidence.map((evidence) => {
-                          const source = documents.find((item) => item.id === evidence.documentId)
-                          const sectionTitle = sectionTitleFor(source, evidence.sectionId)
-                          const selected = isSameEvidence(activeEvidence, evidence)
-
-                          return (
-                            <button
-                              key={`${evidence.documentId}-${evidence.sectionId}-${evidence.excerpt}`}
-                              type="button"
-                              className="review-evidence__button"
-                              aria-pressed={selected}
-                              onClick={() => onEvidenceSelect(evidence)}
-                            >
-                              <span className="review-evidence__source">
-                                {source?.title ?? evidence.documentId} · {sectionTitle}
-                              </span>
-                              <span className="review-evidence__excerpt">{evidence.excerpt}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                  </article>
-                </li>
-              )
-            })}
-          </ol>
+                      }
+                      onStatusChange={(status) => onFindingStatusChange(presentation.finding.id, status)}
+                      onEvidenceSelect={onEvidenceSelect}
+                    />
+                  </li>
+                ))}
+              </ol>
             </>
           ) : null}
         </>
@@ -229,12 +203,4 @@ function FindingSummary({ findings }: { findings: readonly ReviewFinding[] }) {
       </div>
     </dl>
   )
-}
-
-function sectionTitleFor(source: HealthcareDocument | undefined, sectionId: string): string {
-  if (sectionId === 'patient' && !source?.sections.some((section) => section.id === 'patient')) {
-    return 'Patient identity'
-  }
-
-  return source?.sections.find((section) => section.id === sectionId)?.title ?? sectionId
 }

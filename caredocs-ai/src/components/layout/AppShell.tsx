@@ -2,11 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { reviewChecklist } from '../../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
-import {
-  createReviewSession,
-  setFindingStatus,
-  setReviewStatus,
-} from '../../features/document-review/review-session.ts'
+import { setFindingStatus, setReviewStatus } from '../../features/document-review/review-session.ts'
 import { extractPdfContent } from '../../features/document-review/extraction/extract-pdf-content.ts'
 import { PdfTextExtractionError } from '../../features/document-review/extraction/extract-pdf-text.ts'
 import { parseDocumentUpload } from '../../features/document-review/template-validation.ts'
@@ -18,21 +14,20 @@ import { AppHeader } from './AppHeader.tsx'
 import { SideNav } from './SideNav.tsx'
 import {
   acceptDocument,
-  beginCompare,
   beginExtraction,
   canCompare,
   cancelExtraction,
+  completeCompare,
   confirmReviewedField,
   documentsInReview,
   editReviewedField,
   clearExtractionError,
-  failCompare,
   failExtraction,
-  finishCompare,
   finishExtraction,
   initialWorkspace,
   rejectUpload,
   removeDocument,
+  requestCompare,
   showPage,
   updateExtractionProgress,
   type AppPage,
@@ -180,7 +175,7 @@ export function AppShell() {
     cancelCompare()
     const generation = compareGeneration.current
 
-    setWorkspace((current) => beginCompare(current))
+    setWorkspace((current) => requestCompare(current))
     compareTimer.current = window.setTimeout(() => {
       compareTimer.current = null
       if (compareGeneration.current !== generation) {
@@ -188,22 +183,11 @@ export function AppShell() {
       }
 
       setWorkspace((current) => {
-        if (compareGeneration.current !== generation || current.phase !== 'comparing') {
+        if (compareGeneration.current !== generation) {
           return current
         }
 
-        const letter = current.letter.document
-        const plan = current.plan.document
-        if (!letter || !plan) {
-          return current
-        }
-
-        try {
-          return finishCompare(current, createReviewSession([letter, plan], reviewChecklist))
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'The documents could not be compared.'
-          return failCompare(current, message)
-        }
+        return completeCompare(current, reviewChecklist)
       })
     }, 0)
   }
@@ -243,6 +227,7 @@ export function AppShell() {
               phase={workspace.phase}
               review={workspace.review}
               compareError={workspace.compareError}
+              blockReasons={workspace.blockReasons}
               documents={documentsInReview(workspace)}
               activeEvidence={workspace.activeEvidence}
               canCompare={canCompare(workspace)}

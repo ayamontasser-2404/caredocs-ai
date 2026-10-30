@@ -600,6 +600,23 @@ describe('comparison safety', () => {
     }
   })
 
+  it('skips a blank patient id and a blank dosage instead of inventing values', () => {
+    const letter = makeDocument('DOC-A', {
+      patient: { patientId: '', name: 'Erika Beispiel', dateOfBirth: '1962-03-14' },
+      medications: [medication({ dosage: '' })],
+    })
+    const plan = makeDocument('DOC-B', {
+      type: 'medication-plan',
+      patient: { patientId: '', name: 'Erika Beispiel', dateOfBirth: '1962-03-14' },
+      medications: [medication({ strength: '20 mg', dosage: '' })],
+    })
+
+    const findings = compareDocuments(letter, plan, reviewChecklist)
+
+    expect(ids(findings)).toEqual(['FIND-MED-PANTOPRAZOL-STRENGTH'])
+    expect(findings.some((finding) => finding.id.includes('DOSAGE') || finding.id === 'FIND-IDENTITY-ID')).toBe(false)
+  })
+
   it('rejects a missing checklist', () => {
     expect(() =>
       compareDocuments(

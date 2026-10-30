@@ -18,6 +18,7 @@ vi.mock('../features/document-review/extraction/render-pdf-page.ts', () => ({
     canvas.height = 0
   },
 }))
+import { extractionPageElementId } from '../components/layout/section-target.ts'
 import { reviewChecklist } from '../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../data/sampleMedicationPlan.ts'
@@ -88,11 +89,33 @@ describe('workspace pages', () => {
     const evidence = screen.getByRole('button', { name: /Ärztlicher Entlassbrief/ })
     expect(evidence.textContent).toContain('Erika Beispiel')
     expect(screen.getByRole('button', { name: /Medikationsplan/ }).textContent).toContain('Erika Beispel')
+    const nameCard = screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')
+    expect(nameCard?.textContent).toContain('Erika Beispiel')
+    expect(nameCard?.textContent).toContain('Erika Beispel')
+    expect(nameCard?.textContent).toContain('Page unavailable')
+    expect(nameCard?.textContent).toContain('Supporting text unavailable')
+    expect(nameCard?.textContent).toContain('Field verification: Verification status unavailable')
+    expect(nameCard?.textContent).toContain('Finding review: Needs review')
+    expect(statusFor('Abweichender Patientenname').value).toBe('open')
+
+    await user.click(screen.getByRole('button', { name: /Missing information \(/ }))
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Kein konkretes Nachsorgedatum angegeben' })).toBeTruthy()
+    expect(screen.getAllByText('No matching value was in the compared data.').length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Show evidence for Kein konkretes Nachsorgedatum angegeben' }))
+    expect(statusFor('Kein konkretes Nachsorgedatum angegeben').value).toBe('open')
+
+    await user.click(screen.getByRole('button', { name: /Mismatches \(/ }))
+    expect(screen.getByRole('heading', { name: 'Abweichender Patientenname' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Kein konkretes Nachsorgedatum angegeben' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^All \(/ }))
 
     const findingStatus = statusFor('Abweichender Patientenname')
     await user.selectOptions(findingStatus, 'reviewed')
     expect(findingStatus.value).toBe('reviewed')
     expect(summaryCount('Open findings')).toBe(String(session.findings.length - 1))
+    expect(screen.getByRole('button', { name: 'Reviewed (1)' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: `Needs review (${session.findings.length - 1})` })).toBeTruthy()
 
     const reviewStatus = screen.getByLabelText('Review status') as HTMLSelectElement
     await user.selectOptions(reviewStatus, 'completed')
@@ -215,8 +238,11 @@ describe('workspace pages', () => {
     expect(screen.getByText('Structured status: No supported fields recognized')).toBeTruthy()
     expect(createOcrSession).toHaveBeenCalledTimes(1)
     expect(renderPdfPage).toHaveBeenCalledTimes(1)
-    expect(compareButton().disabled).toBe(true)
-    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(compareButton().disabled).toBe(false)
+    await user.click(compareButton())
+    expect(await screen.findByRole('heading', { name: 'Comparison was not run' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'No discrepancies detected by the enabled checks.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
   })
 
   it('shows recognized text from a scanned PDF without creating findings', async () => {
@@ -321,6 +347,55 @@ describe('workspace pages', () => {
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
   })
+
+  it('blocks comparison until PDF fields are confirmed, then compares confirmed values', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+    await user.upload(screen.getByLabelText('Choose discharge letter'), medicationPdf('letter.pdf', '40 mg'))
+    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+
+    expect(await screen.findByText('Comparison readiness: Not eligible')).toBeTruthy()
+    expect(compareButton().disabled).toBe(false)
+    await user.click(compareButton())
+
+    expect(await screen.findByRole('heading', { name: 'Comparison was not run' })).toBeTruthy()
+    expect(screen.getByText('The documents are not ready. This is not a result of zero differences.')).toBeTruthy()
+    expect(screen.getByText('Discharge letter: Patient name has not been confirmed.')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichende Medikamentenstärke' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'No discrepancies detected by the enabled checks.' })).toBeNull()
+
+    await user.upload(screen.getByLabelText('Replace medication plan'), medicationPdf('plan.pdf', '20 mg'))
+    expect(await screen.findByText('Selected file: plan.pdf')).toBeTruthy()
+    await confirmVisibleFields(user)
+    await user.click(compareButton())
+
+    expect(await screen.findByRole('heading', { name: 'Abweichende Medikamentenstärke' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Comparison was not run' })).toBeNull()
+    expect(screen.getAllByText('Original extracted value: 40 mg').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Original extracted value: 20 mg').length).toBeGreaterThan(0)
+    const strengthCard = screen.getByRole('heading', { name: 'Abweichende Medikamentenstärke' }).closest('article')
+    expect(strengthCard?.textContent).toContain('Page 3')
+    expect(strengthCard?.textContent).toContain('Medication: Pantoprazol 40 mg')
+    expect(strengthCard?.textContent).toContain('Medication: Pantoprazol 20 mg')
+    expect(strengthCard?.textContent).toContain('Field verification: Verified against source')
+    expect(strengthCard?.textContent).toContain('Finding review: Needs review')
+    expect(statusFor('Abweichende Medikamentenstärke').value).toBe('open')
+    await user.click(screen.getByRole('button', { name: 'Show evidence for Abweichende Medikamentenstärke' }))
+    expect(statusFor('Abweichende Medikamentenstärke').value).toBe('open')
+    await user.click(screen.getByRole('button', { name: /Discharge letter/ }))
+    expect(document.activeElement?.id).toBe(extractionPageElementId('discharge-letter', 'letter.pdf', 3))
+
+    const strength = screen.getAllByRole('textbox', { name: 'Reviewed value for Medication 1 strength' })[0]
+    if (!strength) {
+      throw new Error('Expected a strength field.')
+    }
+    await user.clear(strength)
+    await user.type(strength, '10 mg')
+
+    expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Abweichende Medikamentenstärke' })).toBeNull()
+  })
 })
 
 async function openNewReview(user: ReturnType<typeof userEvent.setup>) {
@@ -347,6 +422,35 @@ function statusFor(title: string): HTMLSelectElement {
 
 function jsonFile(name: string, document: HealthcareDocument): File {
   return new File([JSON.stringify(document)], name, { type: 'application/json' })
+}
+
+async function confirmVisibleFields(user: ReturnType<typeof userEvent.setup>) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const pending = screen.getAllByRole('button', { name: /^Confirm / }).filter((button) => {
+      const row = button.closest('.extraction-panel__edit')
+      const text = row?.textContent ?? ''
+      return text.includes('Unverified') || text.includes(': Corrected')
+    })
+    const next = pending[0]
+    if (!next) {
+      return
+    }
+    await user.click(next)
+  }
+}
+
+function medicationPdf(name: string, strength: string): File {
+  return new File(
+    [
+      pdfBytes([
+        textStream('Patient name: Erika Beispiel'),
+        textStream('Date of birth: 12 March 1980'),
+        textStream(`Medication: Pantoprazol ${strength}`),
+      ]),
+    ],
+    name,
+    { type: 'application/pdf' },
+  )
 }
 
 function labeledPdf(): File {

@@ -18,8 +18,8 @@ export function FieldVerification({ documentType, verification, onEdit, onConfir
     <div className="extraction-panel__page">
       <h3>Verification</h3>
       <p className="extraction-panel__note">
-        Confirmation stays in this browser session. It is not an electronic signature, and it does not compare the
-        PDF.
+        Confirmation stays in this browser session. It is not an electronic signature. Compare Documents uses these
+        confirmed values only when both documents are ready.
       </p>
       <p role="status">
         Comparison readiness: {verification.eligibleForComparison ? 'Eligible for a later comparison' : 'Not eligible'}

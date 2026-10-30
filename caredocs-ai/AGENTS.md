@@ -32,14 +32,14 @@ Preserve this experience unless the task explicitly changes it. See `ARCHITECTUR
 
 ## 3. Important capability boundary
 
-Structured JSON upload and template validation exist. PDF.js reads embedded text from an uploaded PDF. Pages with no usable embedded text are rendered and recognized in the browser with Tesseract.js (`deu`, German). `extractDocumentData` then reads supported labels from that page text into structured fields with source evidence. `createDocumentVerification` keeps that extraction unchanged and adds a separate reviewed value, structural checks, extraction uncertainty, and a per-field confirmation state. Confirmation is in-memory workflow state. It is not an electronic signature, a saved audit record, or a `HealthcareDocument`. A confirmed PDF is still not passed to `compareDocuments`. Word files are still rejected. The original `File` and raw JSON are not stored. A PDF result and its review state are kept only in the session. Refreshing the page drops them.
+Structured JSON upload and template validation exist. PDF.js reads embedded text from an uploaded PDF. Pages with no usable embedded text are rendered and recognized in the browser with Tesseract.js (`deu`, German). `extractDocumentData` then reads supported labels from that page text into structured fields with source evidence. `createDocumentVerification` keeps that extraction unchanged and adds a separate reviewed value, structural checks, extraction uncertainty, and a per-field confirmation state. `prepareComparisonInput` turns confirmed fields into the existing comparison input, or returns typed reasons when the pair is not ready. It does not invent a patient id or a dosage. `compareDocuments` stays the comparison engine. Confirmation is in-memory workflow state. It is not an electronic signature or a saved audit record. Word files are still rejected. The original `File` and raw JSON are not stored. A PDF result and its review state are kept only in the session. Refreshing the page drops them. The findings panel joins each finding to those reviewed fields for page and source text. It does not invent a page, a quote, or a verification state, and it does not treat a finding's review status as verification.
 
 Never:
 - claim a Word file has been read;
 - claim OCR text or a structured field is confirmed clinical information or a finding;
 - load a sample fixture when upload or parsing fails;
 - fabricate extracted fields, excerpts, page numbers, confidence, or evidence;
-- describe field confirmation as an electronic signature, an authenticated review, a saved audit trail, or a completed comparison of PDF text. Comparison of PDF text is not implemented.
+- describe field confirmation as an electronic signature, an authenticated review, or a saved audit trail. Confirmation does not by itself compare the documents.
 
 ## 4. Architecture and code conventions
 
@@ -94,7 +94,7 @@ Do not hardcode counts, statuses, or successful processing results when they sho
 - Preserve the two-item primary sidebar unless requirements change.
 - Keep findings below the upload section on the New Review page.
 - Keep the existing result states distinct. Before comparison, the findings area is empty. While `phase` is `comparing`, show that comparison is in progress. A comparison error is its own message. Zero findings after a successful comparison is a different message from the empty state. A successful comparison shows the counts and finding cards. Do not add a separate success banner.
-- A JSON template can be compared. A PDF can be read, including OCR for pages without embedded text. Labeled fields can be corrected and confirmed one field at a time. Confirmation does not compare the PDF. Do not tell the reviewer that a Word file can be read, that a PDF can be compared, or that confirmation is an electronic signature.
+- A JSON template can be compared. A PDF can be read, including OCR for pages without embedded text. Labeled fields can be corrected and confirmed one field at a time. Compare Documents uses those confirmed values when both documents are ready. Do not tell the reviewer that a Word file can be read, or that confirmation is an electronic signature.
 - Ensure buttons and inputs have accessible names, keyboard interaction, visible focus, and adequate contrast.
 - Do not communicate severity or status through color alone.
 - Avoid horizontal overflow on mobile.

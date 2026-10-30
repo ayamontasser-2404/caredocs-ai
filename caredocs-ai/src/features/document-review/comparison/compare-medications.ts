@@ -93,6 +93,10 @@ function compareRequiredField(
   const valueA = entryA[field]
   const valueB = entryB[field]
 
+  if (field === 'dosage' && (normalizeOptional(valueA) === undefined || normalizeOptional(valueB) === undefined)) {
+    return
+  }
+
   if (normalizeText(valueA) === normalizeText(valueB)) {
     return
   }
@@ -205,7 +209,9 @@ function fieldExcerpt(field: 'strength' | 'dosage', name: string, value: string)
 
 function formatPresentMedication(entry: MedicationEntry): string {
   const instructions = normalizeOptional(entry.instructions)
-  const base = `${entry.name} ${entry.strength}; ${entry.dosage}`
+  const dosage = normalizeOptional(entry.dosage)
+  const base =
+    dosage === undefined ? `${entry.name} ${entry.strength}` : `${entry.name} ${entry.strength}; ${entry.dosage}`
   return instructions === undefined ? base : `${base}; ${entry.instructions}`
 }
 

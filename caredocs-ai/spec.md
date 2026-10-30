@@ -181,9 +181,9 @@ Invalid input throws `ComparisonInputError` and names the missing field, not the
 
 The shell is a header and a side navigation with two pages, Home and New Review. Home introduces the workspace, the two supported document types, and the review steps. Start New Review opens the New Review page. Switching pages does not clear a review that is already on screen.
 
-New Review shows the two upload cards first and the findings underneath. Each card accepts the JSON template for that slot, shows the selected filename, and can replace or remove that file. A rejected file explains which template check failed and is not passed to `compareDocuments`. A PDF shows its page text, method, recognizer confidence when present, and any labeled fields with their source page. The same card lists a reviewed value for each field that needs review. The reviewer can correct one field and confirm that field. The original extraction and its source text stay visible. Confirmation of every required field can mark the PDF eligible for a later comparison. That mark does not compare the PDF, and Compare Documents still requires two JSON documents. Word files are not read. Review state is not saved, and confirmation is not an electronic signature.
+New Review shows the two upload cards first and the findings underneath. Each card accepts the JSON template for that slot, shows the selected filename, and can replace or remove that file. A rejected file explains which template check failed and is not passed to `compareDocuments`. A PDF shows its page text, method, recognizer confidence when present, and any labeled fields with their source page. The same card lists a reviewed value for each field that needs review. The reviewer can correct one field and confirm that field. The original extraction and its source text stay visible. Confirmation of every required field can mark that PDF ready. Compare Documents then uses `prepareComparisonInput`. Confirmed PDF fields and JSON templates can be compared. A missing second document, an unconfirmed field, or a blocking validation error shows why comparison was not run. That message is different from a comparison that found no differences. An edit clears the previous findings. Word files are not read. Review state is not saved, and confirmation is not an electronic signature.
 
-Compare Documents runs only when both documents are valid. The findings section then shows the counts, and each finding shows its category, severity, status, description, rationale, and evidence. Evidence names the source document, the section, and the excerpt. The source documents are shown with the results, and activating an excerpt highlights that section. A medication excerpt also highlights the matching line. A sentence excerpt is marked inside the section text.
+Compare Documents runs only when both documents are valid. The findings section then shows the counts, and each finding shows its category, severity, review status, description, rationale, and the values being compared. Verification of a field is shown separately from the finding's review status. A PDF page and its source text are shown when the confirmed field has them. A JSON finding says the page and supporting text are unavailable instead of inventing them. Filters can limit the list to findings that need review, mismatches, missing information, or findings already marked reviewed or resolved. Activating an excerpt focuses a valid PDF page, or highlights the structured section when no page is available. A medication excerpt also highlights the matching line. A sentence excerpt is marked inside the section text. Opening a finding does not mark it reviewed.
 
 The reviewer can set the review to `not-started`, `in-progress`, or `completed`, and can set each finding to `open`, `reviewed`, `resolved`, or `follow-up-required`. A completed review can still contain open and follow-up findings.
 
@@ -213,12 +213,12 @@ Upload acceptance checks:
 - A discharge letter missing `follow-up` or `treatment` is rejected.
 - A medication plan missing `patient` is rejected.
 - A section title may differ from the template label. A blank title is rejected.
-- A Word file is rejected and is not compared. A PDF is read, labeled fields may be listed, and those fields may be corrected and confirmed in the session. The PDF is still not compared. OCR text, structured fields, and field confirmation do not create findings.
+- A Word file is rejected and is not compared. A PDF is read, labeled fields may be listed, and those fields may be corrected and confirmed in the session. Confirmed fields can be compared. OCR text, structured fields, and field confirmation do not by themselves create findings.
 - A rejected file does not replace the accepted document and does not load the sample.
 
 Current checks, run from this directory (the directory that contains `package.json`, not the git root):
 
-- `npm test` runs the comparison, template-validation, review-session, PDF extraction, field-verification, and workspace-page tests.
+- `npm test` runs the comparison, comparison-input, template-validation, review-session, PDF extraction, field-verification, and workspace-page tests.
 - `npm run lint` runs Oxlint.
 - `npm run build` typechecks and builds the Vite app.
 - `npm run dev` starts the workspace.

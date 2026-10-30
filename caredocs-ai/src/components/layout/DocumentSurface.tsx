@@ -1,7 +1,11 @@
 import { useEffect, type ReactNode } from 'react'
+import {
+  pageTargetForEvidence,
+  type VerificationSource,
+} from '../../features/document-review/findings/present-finding.ts'
 import type { HealthcareDocument, MedicationEntry } from '../../types/document.ts'
-import type { FindingEvidence } from '../../types/review.ts'
-import { sectionElementId } from './section-target.ts'
+import type { FindingEvidence, ReviewState } from '../../types/review.ts'
+import { extractionPageElementId, isSameEvidence, sectionElementId } from './section-target.ts'
 
 const documentTypeLabel = {
   'discharge-letter': 'Discharge letter',
@@ -11,17 +15,35 @@ const documentTypeLabel = {
 interface DocumentSurfaceProps {
   documents: readonly HealthcareDocument[]
   activeEvidence: FindingEvidence | null
+  review: ReviewState | null
+  sources: readonly VerificationSource[]
 }
 
-export function DocumentSurface({ documents, activeEvidence }: DocumentSurfaceProps) {
+export function DocumentSurface({ documents, activeEvidence, review, sources }: DocumentSurfaceProps) {
+  const finding =
+    activeEvidence === null
+      ? null
+      : (review?.findings.find((item) =>
+          item.evidence.some((evidence) => isSameEvidence(activeEvidence, evidence)),
+        ) ?? null)
+  const page =
+    activeEvidence === null ? null : pageTargetForEvidence(activeEvidence, finding, documents, sources)
+  const pageElementId = page
+    ? extractionPageElementId(page.documentType, page.fileName, page.pageNumber)
+    : null
+  const sectionId =
+    activeEvidence === null ? null : sectionElementId(activeEvidence.documentId, activeEvidence.sectionId)
+
   useEffect(() => {
-    if (!activeEvidence) {
+    const pageElement = pageElementId === null ? null : document.getElementById(pageElementId)
+
+    if (pageElement instanceof HTMLElement) {
+      pageElement.scrollIntoView({ block: 'nearest' })
+      pageElement.focus({ preventScroll: true })
       return
     }
 
-    const target = document.getElementById(
-      sectionElementId(activeEvidence.documentId, activeEvidence.sectionId),
-    )
+    const target = sectionId === null ? null : document.getElementById(sectionId)
 
     if (!(target instanceof HTMLElement)) {
       return
@@ -29,7 +51,7 @@ export function DocumentSurface({ documents, activeEvidence }: DocumentSurfacePr
 
     target.scrollIntoView({ block: 'nearest' })
     target.focus({ preventScroll: true })
-  }, [activeEvidence])
+  }, [pageElementId, sectionId])
 
   if (documents.length === 0) {
     return null
@@ -54,7 +76,8 @@ export function DocumentSurface({ documents, activeEvidence }: DocumentSurfacePr
               {item.title}
             </h3>
             <p className="document-record__meta">
-              {item.filename} · {item.createdAt}
+              {item.filename}
+              {item.createdAt.trim().length > 0 ? ` · ${item.createdAt}` : ''}
             </p>
           </header>
           {item.sections.some((section) => section.id === 'patient') ? null : (
@@ -126,7 +149,11 @@ function PatientFacts({
     <dl className="document-facts">
       <div>
         <dt>Patient ID</dt>
-        <dd>{markedText(source.patient.patientId, excerpt)}</dd>
+        <dd>
+          {source.patient.patientId.trim().length > 0
+            ? markedText(source.patient.patientId, excerpt)
+            : 'Not in the document'}
+        </dd>
       </div>
       <div>
         <dt>Name</dt>
@@ -198,7 +225,8 @@ function MedicationList({
         >
           <span className="document-meds__name">{entry.name}</span>
           <span>
-            {entry.strength} · {entry.dosage}
+            {entry.strength}
+            {entry.dosage.trim().length > 0 ? ` · ${entry.dosage}` : ''}
             {entry.instructions ? ` · ${entry.instructions}` : ''}
           </span>
         </li>

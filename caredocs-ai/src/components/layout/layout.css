@@ -502,6 +502,63 @@
   font-weight: var(--font-weight-medium);
 }
 
+.finding-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-8);
+}
+
+.finding-review-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-8);
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.finding-review-status svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.finding-sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-16);
+}
+
+.finding-side {
+  display: grid;
+  gap: var(--spacing-8);
+  min-width: 0;
+  padding: var(--spacing-16);
+  border: var(--border-width-default) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.finding-side p,
+.finding-side blockquote {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.finding-side__document {
+  font-weight: var(--font-weight-semibold);
+}
+
+.finding-side__file {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+
+.finding-side blockquote {
+  padding: var(--spacing-8);
+  border-left: 3px solid var(--color-border);
+  white-space: pre-wrap;
+}
+
 @media (hover: hover) {
   .review-evidence__button:hover {
     background: var(--color-background);
@@ -571,5 +628,11 @@
   .review-panel {
     border-left: 0;
     border-top: var(--border-width-default) solid var(--color-border);
+  }
+}
+
+@media (max-width: 800px) {
+  .finding-sides {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
