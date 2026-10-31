@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ComparisonBlockReason } from '../../features/document-review/comparison/prepare-comparison-input.ts'
 import {
   countFindings,
@@ -51,9 +51,17 @@ export function ReviewPanel({
   onFindingStatusChange,
   onEvidenceSelect,
 }: ReviewPanelProps) {
+  const panelRef = useRef<HTMLElement>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<FindingFilter>('all')
   const [seenPhase, setSeenPhase] = useState(phase)
+  useEffect(() => {
+    if (phase !== 'ready' && phase !== 'blocked' && phase !== 'error') {
+      return
+    }
+
+    panelRef.current?.scrollIntoView({ block: 'start' })
+  }, [phase])
   if (seenPhase !== phase) {
     setSeenPhase(phase)
     setFilter('all')
@@ -65,7 +73,12 @@ export function ReviewPanel({
   const visible = presentations.filter((item) => findingMatchesFilter(item, filter))
 
   return (
-    <section className="review-panel" aria-labelledby="review-findings-title" aria-busy={phase === 'comparing'}>
+    <section
+      ref={panelRef}
+      className="review-panel"
+      aria-labelledby="review-findings-title"
+      aria-busy={phase === 'comparing'}
+    >
       <header className="review-panel__header">
         <h2 className="review-panel__title" id="review-findings-title">
           Review Findings

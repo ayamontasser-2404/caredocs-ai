@@ -46,6 +46,36 @@ describe('ReviewPanel findings', () => {
     expect(onFindingStatusChange).toHaveBeenCalledWith('FIND-IDENTITY-NAME', 'reviewed')
   })
 
+  it('scrolls the findings section into view when a comparison result arrives', () => {
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => undefined)
+    const { rerender } = render(panel({ phase: 'comparing' }))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    rerender(panel({ phase: 'ready', review: review([nameFinding(), followUpFinding()]) }))
+    const region = screen.getByRole('region', { name: 'Review Findings' })
+    expect(scrollIntoView.mock.instances).toContain(region)
+    expect(screen.getByRole('heading', { name: 'Abweichender Patientenname' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Kein konkretes Nachsorgedatum angegeben' })).toBeTruthy()
+
+    scrollIntoView.mockClear()
+    rerender(panel({ phase: 'ready', review: review([nameFinding()]) }))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    rerender(
+      panel({
+        phase: 'blocked',
+        blockReasons: [
+          { code: 'DOCUMENT_NOT_VERIFIED', document: 'discharge-letter', message: 'Patient name has not been confirmed.' },
+        ],
+      }),
+    )
+    expect(scrollIntoView.mock.instances).toContain(region)
+
+    rerender(panel({ phase: 'error', compareError: 'The documents could not be compared.' }))
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(region)
+    scrollIntoView.mockRestore()
+  })
+
   it('filters findings and keeps counts on the full result', async () => {
     const user = userEvent.setup()
     render(panel({ phase: 'ready', review: review([nameFinding(), followUpFinding()]) }))

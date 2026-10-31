@@ -1,5 +1,6 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const createOcrSession = vi.hoisted(() => vi.fn())
@@ -23,6 +24,8 @@ import { maxJsonFileBytes } from '../features/document-review/template-validatio
 import { reviewChecklist } from '../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../data/sampleDischargeLetter.ts'
 import { sampleMedicationPlan } from '../data/sampleMedicationPlan.ts'
+import * as comparison from '../features/document-review/comparison/compare-documents.ts'
+import * as reviewSession from '../features/document-review/review-session.ts'
 import { createReviewSession } from '../features/document-review/review-session.ts'
 import type { HealthcareDocument } from '../types/document.ts'
 import { App } from './App.tsx'
@@ -72,10 +75,15 @@ describe('workspace pages', () => {
     expect(compareButton().disabled).toBe(false)
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
 
+    const scrollIntoView = vi
+      .spyOn(HTMLElement.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined)
     await user.click(compareButton())
 
     const session = createReviewSession([sampleDischargeLetter, sampleMedicationPlan], reviewChecklist)
     expect(await screen.findByRole('heading', { name: 'Abweichender Patientenname' })).toBeTruthy()
+    expect(scrollIntoView.mock.instances).toContain(screen.getByRole('region', { name: 'Review Findings' }))
+    scrollIntoView.mockRestore()
     expect(screen.queryByRole('heading', { name: 'Your findings will appear here' })).toBeNull()
     expect(summaryCount('Total findings')).toBe(String(session.findings.length))
     expect(summaryCount('Open findings')).toBe(
@@ -132,6 +140,50 @@ describe('workspace pages', () => {
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
     expect(compareButton().disabled).toBe(true)
+  })
+
+  it('invokes the comparison engine for eligible samples under StrictMode', async () => {
+    const user = userEvent.setup()
+    const compareSpy = vi.spyOn(comparison, 'compareDocuments')
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+    await openNewReview(user)
+    await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
+    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await user.click(compareButton())
+
+    expect(await screen.findByRole('heading', { name: 'Abweichender Patientenname' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Your findings will appear here' })).toBeNull()
+    expect(compareSpy.mock.calls.length).toBeGreaterThan(0)
+    expect(compareSpy.mock.calls).toEqual(
+      compareSpy.mock.calls.map(() => [sampleDischargeLetter, sampleMedicationPlan, reviewChecklist]),
+    )
+    const nameCard = screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')
+    expect(nameCard?.textContent).toContain('Erika Beispiel')
+    expect(nameCard?.textContent).toContain('Erika Beispel')
+    expect(screen.getByRole('heading', { name: 'Kein konkretes Nachsorgedatum angegeben' })).toBeTruthy()
+    compareSpy.mockRestore()
+  })
+
+  it('shows a comparison failure instead of the idle placeholder or an empty result', async () => {
+    const user = userEvent.setup()
+    const sessionSpy = vi.spyOn(reviewSession, 'createReviewSession').mockImplementation(() => {
+      throw new Error('Erika Beispiel')
+    })
+    render(<App />)
+    await openNewReview(user)
+    await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
+    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await user.click(compareButton())
+
+    expect((await screen.findByRole('alert')).textContent).toContain('The documents could not be compared.')
+    expect(screen.queryByText('Erika Beispiel')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Your findings will appear here' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'No discrepancies detected by the enabled checks.' })).toBeNull()
+    sessionSpy.mockRestore()
   })
 
   it('shows the no-findings state when the enabled checks return nothing', async () => {

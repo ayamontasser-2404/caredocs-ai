@@ -126,7 +126,7 @@ This tree describes the reviewed snapshot. Verify actual paths before editing be
 ### `components/pages/`
 
 - **Home:** introduces CareDocs AI, explains supported review scenarios, and links to starting a review.
-- **New Review:** selects/loads supported documents, invokes the review workflow, and presents findings below the upload area.
+- **New Review:** selects/loads supported documents, invokes the review workflow, and presents findings below the upload area. When a comparison finishes, is blocked, or fails, that section is scrolled into view. The findings still come from the review stored by `finishCompare`.
 
 Preserve the requested two-item primary sidebar: **Home** and **New Review**, unless product requirements explicitly change.
 
