@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import type { PDFDocumentLoadingTask } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { describe, expect, it, vi } from 'vitest'
 import {
   PdfTextExtractionError,
   extractPdfText,
   maxPdfFileBytes,
   maxPdfPages,
+  openValidatedPdf,
+  pdfReadCancelledMessage,
+  pdfReadTimeoutMessage,
 } from './extract-pdf-text.ts'
 
 /**
@@ -112,6 +116,38 @@ describe('extractPdfText', () => {
     })
 
     await expect(extractPdfText(file)).rejects.toThrow('The PDF is too large to read.')
+  })
+
+  it('does not return text when file reading is cancelled', async () => {
+    const file = pdfFile('letter.pdf', makePdf([textStream('Pantoprazol')]))
+    vi.spyOn(file, 'arrayBuffer').mockImplementation(() => new Promise(() => undefined))
+    const controller = new AbortController()
+    const pending = extractPdfText(file, controller.signal)
+    controller.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+
+    await expect(pending).rejects.toThrow(pdfReadCancelledMessage)
+    expect(pdfReadCancelledMessage).not.toBe(pdfReadTimeoutMessage)
+  })
+
+  it('destroys the PDF loading task when loading is cancelled', async () => {
+    const destroy = vi.fn(async () => undefined)
+    const loadDocument = vi.fn(
+      () =>
+        ({
+          onPassword: () => undefined,
+          promise: new Promise(() => undefined),
+          destroy,
+        }) as unknown as PDFDocumentLoadingTask,
+    )
+    const file = pdfFile('letter.pdf', makePdf([textStream('Pantoprazol')]))
+    const controller = new AbortController()
+    const pending = openValidatedPdf(file, controller.signal, loadDocument)
+
+    await vi.waitFor(() => expect(loadDocument).toHaveBeenCalled())
+    controller.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+
+    await expect(pending).rejects.toThrow(pdfReadCancelledMessage)
+    expect(destroy).toHaveBeenCalled()
   })
 
   it('rejects a PDF with more pages than the review can read', async () => {

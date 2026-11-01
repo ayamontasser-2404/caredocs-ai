@@ -21,8 +21,34 @@ import { pageConfidence } from './verification-types.ts'
  *
  * A required field is eligible only when it has source text, a valid reviewed value,
  * and an explicit confirmation. Successful validation does not confirm a field.
+ * Typing a value into a missing field does not create source text, a page, or an excerpt.
  * There is no reviewer identity, audit log, or saved session.
  */
+
+/** True when extraction kept at least one non-blank excerpt. Reviewer text does not count. */
+export function fieldHasSourceEvidence(field: { sourceText: readonly string[] }): boolean {
+  return field.sourceText.some((text) => text.trim().length > 0)
+}
+
+/**
+ * Why a required field without source text cannot be compared.
+ * The message names the field and does not repeat the typed value.
+ */
+export function missingSourceReason(field: {
+  label: string
+  extracted: { status: string }
+  modified: boolean
+}): string {
+  if (field.extracted.status === 'missing' && !field.modified) {
+    return `${field.label} was not found.`
+  }
+
+  if (field.extracted.status === 'missing') {
+    return `${field.label} was entered without source text from the document. It cannot be compared.`
+  }
+
+  return `${field.label} has no source text.`
+}
 
 const STRENGTH = /^\d+(?:[.,]\d+)?\s*(?:mg|g|ml|µg|μg|ug|mcg|ie|i\.e\.)$/iu
 
@@ -228,7 +254,7 @@ function rescore(field: ReviewedField, reviewedValue: string, count: number): Re
     normalizedValue: interpreted?.kind === 'date' ? interpreted.iso : null,
     structural,
     uncertainty,
-    canConfirm: structural.length === 0 && trimmed.length > 0,
+    canConfirm: structural.length === 0 && trimmed.length > 0 && fieldHasSourceEvidence(field),
   }
 }
 
@@ -316,18 +342,13 @@ function blockingReasons(fields: readonly ReviewedField[]): string[] {
       continue
     }
 
-    if (field.extracted.status === 'missing' && !field.modified) {
-      reasons.push(`${field.label} was not found.`)
+    if (!fieldHasSourceEvidence(field)) {
+      reasons.push(missingSourceReason(field))
       continue
     }
 
     if (field.structural.length > 0) {
       reasons.push(`${field.label}: ${field.structural[0]?.message ?? 'The value is not valid.'}`)
-      continue
-    }
-
-    if (field.extracted.status !== 'missing' && field.sourceText.length === 0) {
-      reasons.push(`${field.label} has no source text.`)
       continue
     }
 

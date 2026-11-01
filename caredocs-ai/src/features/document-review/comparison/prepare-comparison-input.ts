@@ -1,4 +1,5 @@
 import type { DocumentType, DocumentSection, HealthcareDocument, MedicationEntry } from '../../../types/document.ts'
+import { fieldHasSourceEvidence, missingSourceReason } from '../verification/review-extracted-document.ts'
 import type { DocumentVerification, ReviewedField } from '../verification/verification-types.ts'
 
 /**
@@ -35,9 +36,11 @@ const DEMO_NOTICE =
  * Build the discharge-letter and medication-plan pair for `compareDocuments`.
  *
  * A JSON document already stored on the slot is used as-is.
- * A PDF is used only through its Phase 4 verification. `eligibleForComparison`
- * remains that check. A present field that is still unconfirmed also blocks,
- * because dropping it would look like the value was absent.
+ * A PDF is used only through its verification. `eligibleForComparison` remains
+ * that check, and this function checks again: a required field with no source
+ * text is blocked even if a caller marked it confirmed. A present field that is
+ * still unconfirmed also blocks, because dropping it would look like the value
+ * was absent. Reviewer text is not copied as a page or an excerpt.
  * Patient id and dosage may be absent. They are not invented.
  */
 export function prepareComparisonInput(letter: ComparisonSlot, plan: ComparisonSlot): ComparisonPreparation {
@@ -102,6 +105,14 @@ function prepareSlot(
     return { document: null, reasons: blockedFields(type, slot.verification) }
   }
 
+  const unsupported = slot.verification.fields.filter((field) => field.required && !fieldHasSourceEvidence(field))
+  if (unsupported.length > 0) {
+    return {
+      document: null,
+      reasons: unsupported.map((field) => reason(type, codeFor(field), field)),
+    }
+  }
+
   const unverified = slot.verification.fields.filter((field) => field.verification !== 'confirmed')
   if (unverified.length > 0) {
     return {
@@ -137,15 +148,11 @@ function blocksComparison(field: ReviewedField): boolean {
     return field.reviewedValue.trim().length > 0 && field.structural.length > 0
   }
 
-  if (field.extracted.status === 'missing' && !field.modified) {
+  if (!fieldHasSourceEvidence(field)) {
     return true
   }
 
   if (field.structural.length > 0) {
-    return true
-  }
-
-  if (field.extracted.status !== 'missing' && field.sourceText.length === 0) {
     return true
   }
 
@@ -157,16 +164,14 @@ function codeFor(field: ReviewedField): ComparisonBlockCode {
     return 'UNRESOLVED_AMBIGUITY'
   }
 
-  if (field.required && field.extracted.status === 'missing' && !field.modified) {
-    return 'MISSING_REQUIRED_FIELDS'
+  if (field.required && !fieldHasSourceEvidence(field)) {
+    return field.extracted.status === 'missing' && !field.modified
+      ? 'MISSING_REQUIRED_FIELDS'
+      : 'INSUFFICIENT_COMPARISON_DATA'
   }
 
   if (field.structural.length > 0) {
     return 'VALIDATION_ERRORS'
-  }
-
-  if (field.required && field.extracted.status !== 'missing' && field.sourceText.length === 0) {
-    return 'INSUFFICIENT_COMPARISON_DATA'
   }
 
   return 'DOCUMENT_NOT_VERIFIED'
@@ -185,9 +190,8 @@ function fieldMessage(code: ComparisonBlockCode, field: ReviewedField): string {
     case 'UNRESOLVED_AMBIGUITY':
       return `${field.label} has more than one extracted value.`
     case 'MISSING_REQUIRED_FIELDS':
-      return `${field.label} was not found.`
     case 'INSUFFICIENT_COMPARISON_DATA':
-      return `${field.label} has no source text.`
+      return missingSourceReason(field)
     case 'DOCUMENT_MISSING':
       return `${field.label} is missing.`
   }
@@ -274,6 +278,10 @@ function provenance(fields: readonly ReviewedField[], paths: readonly string[]):
 }
 
 function provenanceLines(field: ReviewedField): string[] {
+  if (!fieldHasSourceEvidence(field)) {
+    return []
+  }
+
   const lines = field.sourceText.map((text, index) => {
     const page = field.evidencePageNumbers[index]
     const method = field.textSource === 'ocr' ? 'OCR' : field.textSource === 'embedded' ? 'embedded text' : 'text'

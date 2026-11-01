@@ -45,7 +45,8 @@ export interface ReviewedField {
 
 /**
  * Review of one extracted PDF.
- * `eligibleForComparison` means the required fields on this PDF are confirmed.
+ * `eligibleForComparison` means every required field has source text, a valid value, and confirmation.
+ * A value typed into a missing field is not source text.
  * `prepareComparisonInput` checks the pair before `compareDocuments` runs.
  */
 export interface DocumentVerification {

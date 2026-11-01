@@ -2,7 +2,11 @@ import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {
   extractPdfText,
   openValidatedPdf,
+  pdfReadCancelledMessage,
+  pdfReadTimeoutMessage,
   PdfTextExtractionError,
+  racePdfAbort,
+  throwIfPdfAborted,
   type OpenPdf,
 } from './extract-pdf-text.ts'
 import type {
@@ -23,14 +27,13 @@ export const maxOcrPages = 20
 /** Safety stop for one PDF read. This is not a measured performance guarantee. */
 export const maxPdfProcessingMs = 3 * 60 * 1000
 
-export const pdfReadCancelledMessage = 'Reading this PDF was cancelled. The document was not saved.'
-export const pdfReadTimeoutMessage = 'Reading this PDF took too long. The document was not saved.'
+export { pdfReadCancelledMessage, pdfReadTimeoutMessage }
 
 export interface ExtractPdfContentOptions {
   onProgress?: (progress: ExtractionProgress) => void
   readEmbedded?: typeof extractPdfText
-  openPdf?: (file: File) => Promise<OpenPdf>
-  renderPage?: (pdf: PDFDocumentProxy, pageNumber: number) => Promise<HTMLCanvasElement>
+  openPdf?: (file: File, signal?: AbortSignal) => Promise<OpenPdf>
+  renderPage?: (pdf: PDFDocumentProxy, pageNumber: number, signal?: AbortSignal) => Promise<HTMLCanvasElement>
   createRecognizer?: () => Promise<OcrSession>
   signal?: AbortSignal
   processingTimeoutMs?: number
@@ -39,6 +42,12 @@ export interface ExtractPdfContentOptions {
 /**
  * Read embedded text, then recognize only pages that have none.
  * A text page is not sent to OCR. OCR output is not a review finding.
+ *
+ * File reading, PDF.js page loading, and `getTextContent` cannot be aborted in
+ * place. This function stops waiting, destroys a PDF it opened, and terminates
+ * an OCR worker it started. Tesseract has no separate cancel; `dispose` ends
+ * recognition by terminating the worker. A result that arrives after
+ * cancellation is discarded.
  */
 export async function extractPdfContent(
   file: File,
@@ -61,11 +70,11 @@ export async function extractPdfContent(
   }
 
   try {
-    throwIfStopped(stop.signal)
+    throwIfPdfAborted(stop.signal)
     const readEmbedded = options.readEmbedded ?? extractPdfText
     options.onProgress?.({ message: 'Reading embedded PDF text…' })
-    const embedded = await readEmbedded(file)
-    throwIfStopped(stop.signal)
+    const embedded = await racePdfAbort(readEmbedded(file, stop.signal), stop.signal)
+    throwIfPdfAborted(stop.signal)
     const pages: ExtractedPdfPage[] = embedded.pages.map((page) => ({
       pageNumber: page.pageNumber,
       text: page.text,
@@ -88,22 +97,46 @@ export async function extractPdfContent(
     const openPdf = options.openPdf ?? openValidatedPdf
     const renderPage = options.renderPage ?? renderPdfPage
     const createRecognizer = options.createRecognizer ?? (() => createOcrSession())
-    const opened = await openPdf(file)
+    const opening = openPdf(file, stop.signal)
+    let opened: OpenPdf
+    try {
+      opened = await racePdfAbort(opening, stop.signal)
+    } catch (error) {
+      closeIfLate(opening)
+      throw error
+    }
+
     let recognizer: OcrSession | null = null
 
     try {
-      throwIfStopped(stop.signal)
-      recognizer = await createRecognizer()
+      throwIfPdfAborted(stop.signal)
+      const starting = Promise.resolve().then(() => createRecognizer())
+      try {
+        recognizer = await racePdfAbort(starting, stop.signal)
+      } catch (error) {
+        disposeIfLate(starting)
+        throw error
+      }
 
       for (const page of pending) {
-        throwIfStopped(stop.signal)
+        throwIfPdfAborted(stop.signal)
         options.onProgress?.({
           message: `Recognizing text on page ${page.pageNumber} of ${embedded.pageCount}`,
         })
-        const canvas = await renderPage(opened.pdf, page.pageNumber)
+        const canvas = await renderPage(opened.pdf, page.pageNumber, stop.signal)
 
         try {
-          const recognized = await Promise.race([recognizer.recognize(canvas), stopPromise(stop.signal)])
+          const recognition = recognizer.recognize(canvas)
+          let recognized: Awaited<ReturnType<OcrSession['recognize']>>
+          try {
+            recognized = await racePdfAbort(recognition, stop.signal)
+          } catch (error) {
+            void recognition.then(
+              () => undefined,
+              () => undefined,
+            )
+            throw error
+          }
           const index = pages.findIndex((item) => item.pageNumber === page.pageNumber)
           if (index >= 0) {
             pages[index] = {
@@ -136,7 +169,7 @@ export async function extractPdfContent(
       await opened.close()
     }
 
-    throwIfStopped(stop.signal)
+    throwIfPdfAborted(stop.signal)
     return assemble(embedded.fileName, embedded.pageCount, pages)
   } finally {
     clearTimeout(timer)
@@ -177,24 +210,20 @@ function hasUsableText(text: string): boolean {
   return text.trim().length > 0
 }
 
-function throwIfStopped(signal: AbortSignal): void {
-  if (signal.aborted) {
-    throw stopError(signal)
-  }
+function closeIfLate(opening: Promise<OpenPdf>): void {
+  void opening.then(
+    (opened) => {
+      void opened.close()
+    },
+    () => undefined,
+  )
 }
 
-function stopPromise(signal: AbortSignal): Promise<never> {
-  if (signal.aborted) {
-    return Promise.reject(stopError(signal))
-  }
-
-  return new Promise((_, reject) => {
-    signal.addEventListener('abort', () => reject(stopError(signal)), { once: true })
-  })
-}
-
-function stopError(signal: AbortSignal): PdfTextExtractionError {
-  return signal.reason instanceof PdfTextExtractionError
-    ? signal.reason
-    : new PdfTextExtractionError(pdfReadCancelledMessage)
+function disposeIfLate(starting: Promise<OcrSession>): void {
+  void starting.then(
+    (session) => {
+      void session.dispose()
+    },
+    () => undefined,
+  )
 }

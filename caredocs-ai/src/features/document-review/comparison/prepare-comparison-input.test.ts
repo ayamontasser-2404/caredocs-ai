@@ -49,6 +49,69 @@ describe('prepareComparisonInput', () => {
     expect(prepared.reasons.some((reason) => reason.message.includes('Erika'))).toBe(false)
   })
 
+  it('blocks a required field that was typed without source evidence', () => {
+    const letter = pdfSlot(
+      'letter.pdf',
+      ['Date of birth: 12 March 1980', 'Medication: Pantoprazol 40 mg'],
+      true,
+      (verification) => editReviewedValue(verification, 'patient.name', 'Typed Name'),
+    )
+    const prepared = prepareComparisonInput(letter, pdfSlot('plan.pdf', verifiedLines('40 mg')))
+
+    expect(prepared.status).toBe('ineligible')
+    if (prepared.status !== 'ineligible') {
+      return
+    }
+
+    expect(prepared.reasons.map((reason) => reason.code)).toContain('INSUFFICIENT_COMPARISON_DATA')
+    expect(prepared.reasons.some((reason) => reason.message.includes('without source text'))).toBe(true)
+    expect(JSON.stringify(prepared)).not.toContain('Typed Name')
+  })
+
+  it('blocks comparison when a required field is marked confirmed without source evidence', () => {
+    const letter = pdfSlot('letter.pdf', verifiedLines('40 mg'))
+    const verification = letter.verification
+    if (!verification) {
+      throw new Error('Expected verification.')
+    }
+
+    const forced: DocumentVerification = {
+      ...verification,
+      eligibleForComparison: true,
+      reasons: [],
+      fields: verification.fields.map((field) =>
+        field.path === 'patient.name'
+          ? {
+              ...field,
+              extracted: { status: 'missing' },
+              originalValue: null,
+              initialValue: null,
+              reviewedValue: 'Typed Name',
+              modified: true,
+              verification: 'confirmed',
+              sourceText: [],
+              evidencePageNumbers: [],
+              structural: [],
+              canConfirm: true,
+            }
+          : field,
+      ),
+    }
+    const prepared = prepareComparisonInput(
+      { document: null, verification: forced },
+      pdfSlot('plan.pdf', verifiedLines('20 mg')),
+    )
+
+    expect(prepared.status).toBe('ineligible')
+    if (prepared.status !== 'ineligible') {
+      return
+    }
+
+    expect(prepared.reasons.map((reason) => reason.code)).toContain('INSUFFICIENT_COMPARISON_DATA')
+    expect(prepared.reasons.some((reason) => reason.message.includes('without source text'))).toBe(true)
+    expect(JSON.stringify(prepared)).not.toContain('Typed Name')
+  })
+
   it('blocks a missing document with a typed reason', () => {
     const prepared = prepareComparisonInput(jsonSlot(sampleDischargeLetter), { document: null, verification: null })
 

@@ -20,6 +20,8 @@ vi.mock('../features/document-review/extraction/render-pdf-page.ts', () => ({
   },
 }))
 import { extractionPageElementId } from '../components/layout/section-target.ts'
+import type { PdfTextExtractionResult } from '../features/document-review/extraction/extraction-types.ts'
+import * as pdfContent from '../features/document-review/extraction/extract-pdf-content.ts'
 import { maxJsonFileBytes } from '../features/document-review/template-validation.ts'
 import { reviewChecklist } from '../data/reviewChecklist.ts'
 import { sampleDischargeLetter } from '../data/sampleDischargeLetter.ts'
@@ -473,6 +475,46 @@ describe('workspace pages', () => {
     expect(screen.getByText('Selected file: next.json')).toBeTruthy()
     expect(screen.queryByText('Selected file: slow.json')).toBeNull()
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
+  })
+
+  it('does not let a stale PDF extraction replace a newer upload', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openNewReview(user)
+
+    let finishSlow: (result: PdfTextExtractionResult) => void = () => undefined
+    const spy = vi.spyOn(pdfContent, 'extractPdfContent').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSlow = resolve
+        }),
+    )
+
+    try {
+      await user.upload(screen.getByLabelText('Choose discharge letter'), labeledPdf())
+      await user.upload(screen.getByLabelText('Replace discharge letter'), medicationPdf('next.pdf', '40 mg'))
+
+      expect(spy).toHaveBeenCalled()
+      expect(spy.mock.calls[0]?.[0].name).toBe('labeled.pdf')
+      expect(await screen.findByText('Selected file: next.pdf')).toBeTruthy()
+      expect(screen.queryByText('Selected file: labeled.pdf')).toBeNull()
+
+      finishSlow({
+        fileName: 'labeled.pdf',
+        pageCount: 1,
+        pages: [{ pageNumber: 1, text: 'STALE EXTRACTION MARKER', method: 'embedded', confidence: null }],
+        fullText: 'STALE EXTRACTION MARKER',
+        hasExtractableText: true,
+        source: 'embedded',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(screen.queryByText('STALE EXTRACTION MARKER')).toBeNull()
+      expect(screen.getByText('Selected file: next.pdf')).toBeTruthy()
+      expect(screen.queryByText('Selected file: labeled.pdf')).toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('rejects an oversized JSON file before reading it as a document', async () => {

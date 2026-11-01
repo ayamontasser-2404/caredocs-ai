@@ -1,6 +1,6 @@
 import type { DocumentType } from '../../types/document.ts'
-import type { ReviewedField } from '../../features/document-review/verification/verification-types.ts'
-import type { DocumentVerification } from '../../features/document-review/verification/verification-types.ts'
+import { fieldHasSourceEvidence } from '../../features/document-review/verification/review-extracted-document.ts'
+import type { DocumentVerification, ReviewedField } from '../../features/document-review/verification/verification-types.ts'
 
 interface FieldVerificationProps {
   documentType: DocumentType
@@ -64,6 +64,12 @@ function ReviewedFieldRow({
         {field.required ? '' : '. Optional'}
       </p>
       <p>Original extracted value: {field.originalValue ?? 'None'}</p>
+      {!fieldHasSourceEvidence(field) ? (
+        <p className="extraction-panel__note">
+          No source evidence was found for {field.label}. A value typed here is not extracted evidence and cannot be
+          confirmed for comparison.
+        </p>
+      ) : null}
       {field.sourceText.map((text, index) => (
         <p key={`${field.path}-${index}`}>
           Verification source page {field.evidencePageNumbers[index]}: {text}
@@ -105,6 +111,10 @@ function ReviewedFieldRow({
 }
 
 function statusText(field: ReviewedField): string {
+  if (!fieldHasSourceEvidence(field)) {
+    return field.reviewedValue.trim().length > 0 ? 'Entered without source evidence' : 'Unverified'
+  }
+
   if (field.verification === 'confirmed' && field.modified) {
     return 'Correction confirmed'
   }

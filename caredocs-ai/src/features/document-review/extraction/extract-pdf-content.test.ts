@@ -265,7 +265,112 @@ describe('extractPdfContent', () => {
     expect(dispose).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
   })
+
+  it('cancels during embedded text extraction and does not open the PDF for OCR', async () => {
+    const openPdf = vi.fn()
+    const controller = new AbortController()
+    const pending = extractPdfContent(pdfFile('letter.pdf', makePdf([textStream('Pantoprazol')])), {
+      signal: controller.signal,
+      processingTimeoutMs: 60_000,
+      openPdf,
+      readEmbedded: (_file, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () => {
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        }),
+    })
+
+    controller.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+
+    await expect(pending).rejects.toThrow(pdfReadCancelledMessage)
+    expect(openPdf).not.toHaveBeenCalled()
+  })
+
+  it('cancels while the PDF document is loading and closes it if opening finishes later', async () => {
+    const close = vi.fn(async () => undefined)
+    let loading = false
+    let finish: (opened: { pdf: PDFDocumentProxy; close: () => Promise<void> }) => void = () => undefined
+    const controller = new AbortController()
+    const pending = extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+      signal: controller.signal,
+      processingTimeoutMs: 60_000,
+      readEmbedded: async () => scannedResult(),
+      openPdf: () =>
+        new Promise((resolve) => {
+          loading = true
+          finish = resolve
+        }),
+    })
+
+    await vi.waitFor(() => expect(loading).toBe(true))
+    controller.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+
+    await expect(pending).rejects.toThrow(pdfReadCancelledMessage)
+    finish({ pdf: {} as PDFDocumentProxy, close })
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
+  })
+
+  it('disposes an OCR worker that finishes starting after cancellation', async () => {
+    const close = vi.fn(async () => undefined)
+    const dispose = vi.fn(async () => undefined)
+    let starting = false
+    let start: (session: OcrSession) => void = () => undefined
+    const controller = new AbortController()
+    const pending = extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+      signal: controller.signal,
+      processingTimeoutMs: 60_000,
+      readEmbedded: async () => scannedResult(),
+      openPdf: async () => ({ pdf: {} as PDFDocumentProxy, close }),
+      createRecognizer: () =>
+        new Promise((resolve) => {
+          starting = true
+          start = resolve
+        }),
+    })
+
+    await vi.waitFor(() => expect(starting).toBe(true))
+    controller.abort(new PdfTextExtractionError(pdfReadCancelledMessage))
+
+    await expect(pending).rejects.toThrow(pdfReadCancelledMessage)
+    expect(close).toHaveBeenCalledTimes(1)
+    start({
+      recognize: async () => ({ text: 'Erika Beispiel', confidence: 1 }),
+      dispose,
+    })
+    await vi.waitFor(() => expect(dispose).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports a timeout when embedded reading does not finish and does not open the PDF', async () => {
+    const openPdf = vi.fn()
+
+    await expect(
+      extractPdfContent(pdfFile('scan.pdf', makePdf([''])), {
+        processingTimeoutMs: 20,
+        readEmbedded: () => new Promise(() => undefined),
+        openPdf,
+      }),
+    ).rejects.toThrow(pdfReadTimeoutMessage)
+
+    expect(openPdf).not.toHaveBeenCalled()
+    expect(pdfReadTimeoutMessage).not.toBe(pdfReadCancelledMessage)
+  })
 })
+
+function scannedResult() {
+  return {
+    fileName: 'scan.pdf',
+    pageCount: 1,
+    pages: [{ pageNumber: 1, text: '' }],
+    fullText: '',
+    hasExtractableText: false,
+    source: 'embedded' as const,
+  }
+}
 
 function pdfFile(name: string, bytes: Uint8Array): File {
   const copy = new ArrayBuffer(bytes.byteLength)

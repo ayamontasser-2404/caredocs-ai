@@ -144,6 +144,8 @@ describe('createDocumentVerification', () => {
       structural: [],
     })
     expect(strength?.extracted).toMatchObject({ status: 'found', sourceValue: '40 mg' })
+    expect(strength?.sourceText).toEqual(['Medication: Pantoprazol 40 mg'])
+    expect(strength?.evidencePageNumbers).toEqual([1])
   })
 
   it('does not confirm an invalid correction', () => {
@@ -158,7 +160,7 @@ describe('createDocumentVerification', () => {
     expect(verification.eligibleForComparison).toBe(false)
   })
 
-  it('blocks a required field that has no source text', () => {
+  it('does not confirm a required field that has no source text', () => {
     const fields = completeFields()
     fields.patient.name = {
       status: 'found',
@@ -168,9 +170,33 @@ describe('createDocumentVerification', () => {
     }
     let verification = createDocumentVerification(extraction(fields), pages, 1)
     verification = confirmReviewedField(verification, 'patient.name')
+    const name = verification.fields.find((field) => field.path === 'patient.name')
 
-    expect(verification.fields.find((field) => field.path === 'patient.name')?.verification).toBe('confirmed')
+    expect(name?.verification).toBe('unverified')
+    expect(name?.canConfirm).toBe(false)
+    expect(name?.sourceText).toEqual([])
     expect(verification.reasons).toContain('Patient name has no source text.')
+    expect(verification.eligibleForComparison).toBe(false)
+  })
+
+  it('does not turn a typed missing required field into source evidence', () => {
+    const fields = completeFields()
+    fields.patient.name = { status: 'missing' }
+    let verification = createDocumentVerification(extraction(fields), pages, 1)
+    verification = editReviewedValue(verification, 'patient.name', 'Erika Beispiel')
+    verification = confirmReviewedField(verification, 'patient.name')
+    const name = verification.fields.find((field) => field.path === 'patient.name')
+
+    expect(name?.extracted).toEqual({ status: 'missing' })
+    expect(name?.originalValue).toBeNull()
+    expect(name?.reviewedValue).toBe('Erika Beispiel')
+    expect(name?.sourceText).toEqual([])
+    expect(name?.evidencePageNumbers).toEqual([])
+    expect(name?.canConfirm).toBe(false)
+    expect(name?.verification).toBe('unverified')
+    expect(verification.reasons).toContain(
+      'Patient name was entered without source text from the document. It cannot be compared.',
+    )
     expect(verification.eligibleForComparison).toBe(false)
   })
 
