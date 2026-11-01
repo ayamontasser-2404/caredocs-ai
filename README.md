@@ -53,19 +53,17 @@ Evidence-based Findings
 
 ## Screenshots
 
-<!-- Add actual screenshots to caredocs-ai/docs/screenshots/ and update these paths. -->
-
 ### Home
 
-<!-- ![CareDocs AI Home](caredocs-ai/docs/screenshots/home.png) -->
+![CareDocs AI Home](caredocs-ai/docs/screenshots/home.png)
 
 ### Document extraction and verification
 
-<!-- ![Document verification](caredocs-ai/docs/screenshots/verification.png) -->
+![Document verification](caredocs-ai/docs/screenshots/verification.png)
 
 ### Review Findings
 
-<!-- ![Review findings](caredocs-ai/docs/screenshots/review-findings.png) -->
+![Review findings](caredocs-ai/docs/screenshots/review-findings.png)
 
 ## Run locally
 
