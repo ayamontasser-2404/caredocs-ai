@@ -21,6 +21,7 @@ vi.mock('../features/document-review/extraction/render-pdf-page.ts', () => ({
 }))
 import { extractionPageElementId } from '../components/layout/section-target.ts'
 import type { PdfTextExtractionResult } from '../features/document-review/extraction/extraction-types.ts'
+import * as samplePdfs from '../components/layout/sample-pdfs.ts'
 import * as pdfContent from '../features/document-review/extraction/extract-pdf-content.ts'
 import { maxJsonFileBytes } from '../features/document-review/template-validation.ts'
 import { reviewChecklist } from '../data/reviewChecklist.ts'
@@ -70,10 +71,9 @@ describe('workspace pages', () => {
     const user = userEvent.setup()
     render(<App />)
     await openNewReview(user)
-    await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
-    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await uploadSampleTemplates(user)
 
-    expect(screen.getByText('Selected file: entlassbrief-demo (sample)')).toBeTruthy()
+    expect(screen.getByText('Selected file: entlassbrief-demo.json')).toBeTruthy()
     expect(compareButton().disabled).toBe(false)
     expect(screen.queryByRole('heading', { name: 'Abweichender Patientenname' })).toBeNull()
 
@@ -153,8 +153,7 @@ describe('workspace pages', () => {
       </StrictMode>,
     )
     await openNewReview(user)
-    await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
-    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await uploadSampleTemplates(user)
     await user.click(compareButton())
 
     expect(await screen.findByRole('heading', { name: 'Abweichender Patientenname' })).toBeTruthy()
@@ -177,8 +176,7 @@ describe('workspace pages', () => {
     })
     render(<App />)
     await openNewReview(user)
-    await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
-    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await uploadSampleTemplates(user)
     await user.click(compareButton())
 
     expect((await screen.findByRole('alert')).textContent).toContain('The documents could not be compared.')
@@ -369,7 +367,7 @@ describe('workspace pages', () => {
     await user.upload(screen.getByLabelText('Choose discharge letter'), labeledPdf())
 
     expect(await screen.findByText('Comparison readiness: Not eligible')).toBeTruthy()
-    expect(screen.getByText('Verification for Patient name: Unverified')).toBeTruthy()
+    expect(screen.getByText('Patient name · Not confirmed')).toBeTruthy()
     expect(screen.getByText('Original extracted value: 40 mg')).toBeTruthy()
 
     const dateOfBirth = screen.getByRole('textbox', { name: 'Reviewed value for Date of birth' })
@@ -388,15 +386,16 @@ describe('workspace pages', () => {
 
     expect(screen.getByText('Strength: 40 mg')).toBeTruthy()
     expect(screen.getByText('Original extracted value: 40 mg')).toBeTruthy()
-    expect(screen.getByText('Verification for Medication 1 strength: Corrected')).toBeTruthy()
+    expect(screen.getByText('Medication 1 strength · Changed')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Confirm Patient name' }))
     await user.click(screen.getByRole('button', { name: 'Confirm Date of birth' }))
     await user.click(screen.getByRole('button', { name: 'Confirm Medication 1 name' }))
     await user.click(screen.getByRole('button', { name: 'Confirm Medication 1 strength' }))
 
-    expect(screen.getByText('Verification for Follow-up date: Unverified. Optional')).toBeTruthy()
-    expect(screen.getByText('Verification for Medication 1 strength: Correction confirmed')).toBeTruthy()
+    expect(screen.getByText('Follow-up date · Optional · Not confirmed')).toBeTruthy()
+    expect(screen.getByText('Medication 1 strength · Confirmed')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Confirm Medication 1 strength' })).toBeNull()
     expect(screen.getByText('Comparison readiness: Eligible for a later comparison')).toBeTruthy()
     expect(compareButton().disabled).toBe(true)
     expect(screen.getByRole('heading', { name: 'Your findings will appear here' })).toBeTruthy()
@@ -408,7 +407,11 @@ describe('workspace pages', () => {
     render(<App />)
     await openNewReview(user)
     await user.upload(screen.getByLabelText('Choose discharge letter'), medicationPdf('letter.pdf', '40 mg'))
-    await user.click(screen.getByRole('button', { name: 'Use sample medication plan' }))
+    await user.upload(
+      screen.getByLabelText('Choose medication plan'),
+      jsonFile('medikationsplan-demo.json', sampleMedicationPlan),
+    )
+    expect(await screen.findByText('Selected file: medikationsplan-demo.json')).toBeTruthy()
 
     expect(await screen.findByText('Comparison readiness: Not eligible')).toBeTruthy()
     expect(compareButton().disabled).toBe(false)
@@ -517,6 +520,46 @@ describe('workspace pages', () => {
     }
   })
 
+  it('loads the sample discharge letter as a PDF and keeps verification on screen', async () => {
+    const user = userEvent.setup()
+    const sampleSpy = vi.spyOn(samplePdfs, 'loadSamplePdf').mockResolvedValue(
+      new File([new Uint8Array([1])], 'discharge-letter.pdf', { type: 'application/pdf' }),
+    )
+    const extractSpy = vi.spyOn(pdfContent, 'extractPdfContent').mockResolvedValue({
+      fileName: 'discharge-letter.pdf',
+      pageCount: 1,
+      pages: [
+        {
+          pageNumber: 1,
+          text: 'Patient name: Erika Beispiel\nDate of birth: 14 March 1962',
+          method: 'embedded',
+          confidence: null,
+        },
+      ],
+      fullText: 'Patient name: Erika Beispiel\nDate of birth: 14 March 1962',
+      hasExtractableText: true,
+      source: 'embedded',
+    })
+
+    try {
+      render(<App />)
+      await openNewReview(user)
+      await user.click(screen.getByRole('button', { name: 'Use sample discharge letter' }))
+
+      expect(await screen.findByRole('heading', { name: 'Verification' })).toBeTruthy()
+      expect(screen.getByText('Selected file: discharge-letter.pdf')).toBeTruthy()
+      expect(screen.getByText('Patient name · Not confirmed')).toBeTruthy()
+      expect(sampleSpy).toHaveBeenCalledWith('discharge-letter')
+      expect(extractSpy.mock.calls[0]?.[0].name).toBe('discharge-letter.pdf')
+      expect((screen.getByRole('button', { name: 'Use sample discharge letter' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      )
+    } finally {
+      sampleSpy.mockRestore()
+      extractSpy.mockRestore()
+    }
+  })
+
   it('rejects an oversized JSON file before reading it as a document', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -534,6 +577,19 @@ describe('workspace pages', () => {
 
 async function openNewReview(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'New Review' }))
+}
+
+async function uploadSampleTemplates(user: ReturnType<typeof userEvent.setup>) {
+  await user.upload(
+    screen.getByLabelText('Choose discharge letter'),
+    jsonFile('entlassbrief-demo.json', sampleDischargeLetter),
+  )
+  await user.upload(
+    screen.getByLabelText('Choose medication plan'),
+    jsonFile('medikationsplan-demo.json', sampleMedicationPlan),
+  )
+  expect(await screen.findByText('Selected file: entlassbrief-demo.json')).toBeTruthy()
+  expect(screen.getByText('Selected file: medikationsplan-demo.json')).toBeTruthy()
 }
 
 function compareButton(): HTMLButtonElement {
@@ -560,11 +616,7 @@ function jsonFile(name: string, document: HealthcareDocument): File {
 
 async function confirmVisibleFields(user: ReturnType<typeof userEvent.setup>) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const pending = screen.getAllByRole('button', { name: /^Confirm / }).filter((button) => {
-      const row = button.closest('.extraction-panel__edit')
-      const text = row?.textContent ?? ''
-      return text.includes('Unverified') || text.includes(': Corrected')
-    })
+    const pending = screen.queryAllByRole('button', { name: /^Confirm / }).filter((button) => !button.disabled)
     const next = pending[0]
     if (!next) {
       return

@@ -24,15 +24,28 @@ export function FieldVerification({ documentType, verification, onEdit, onConfir
       <p role="status">
         Comparison readiness: {verification.eligibleForComparison ? 'Eligible for a later comparison' : 'Not eligible'}
       </p>
-      {verification.reasons.length > 0 ? (
-        <ul className="upload-card__errors">
-          {verification.reasons.map((reason) => (
-            <li key={reason}>{reason}</li>
+      <ul className="verification-checklist">
+        {verification.fields.map((field) => {
+          const confirmed = field.verification === 'confirmed'
+          const reason = verification.reasons.find((item) => item.startsWith(field.label))
+
+          return (
+            <li
+              key={field.path}
+              className={`verification-checklist__item verification-checklist__item--${confirmed ? 'confirmed' : 'pending'}`}
+            >
+              {confirmed ? `${field.label} is confirmed.` : (reason ?? `${field.label} is not confirmed.`)}
+            </li>
+          )
+        })}
+        {verification.reasons
+          .filter((reason) => !verification.fields.some((field) => reason.startsWith(field.label)))
+          .map((reason) => (
+            <li key={reason} className="verification-checklist__item verification-checklist__item--pending">
+              {reason}
+            </li>
           ))}
-        </ul>
-      ) : (
-        <p>Required fields are confirmed. Optional fields that were not in the text are not required.</p>
-      )}
+      </ul>
       {verification.fields.map((field) => (
         <ReviewedFieldRow
           key={field.path}
@@ -57,11 +70,17 @@ function ReviewedFieldRow({
   onEdit: (type: DocumentType, path: string, value: string) => void
   onConfirm: (type: DocumentType, path: string) => void
 }) {
+  const confirmed = field.verification === 'confirmed'
+
   return (
-    <div className="extraction-panel__edit">
+    <div
+      className={`extraction-panel__edit verification-field verification-field--${confirmed ? 'confirmed' : 'pending'}`}
+    >
       <p>
-        Verification for {field.label}: {statusText(field)}
-        {field.required ? '' : '. Optional'}
+        {field.label}
+        {field.required ? '' : ' · Optional'}
+        {' · '}
+        {statusText(field)}
       </p>
       <p>Original extracted value: {field.originalValue ?? 'None'}</p>
       {!fieldHasSourceEvidence(field) ? (
@@ -98,25 +117,23 @@ function ReviewedFieldRow({
           onChange={(event) => onEdit(documentType, field.path, event.target.value)}
         />
       </label>
-      <button
-        type="button"
-        className="button-secondary"
-        disabled={!field.canConfirm}
-        onClick={() => onConfirm(documentType, field.path)}
-      >
-        Confirm {field.label}
-      </button>
+      {confirmed ? null : (
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={!field.canConfirm}
+          onClick={() => onConfirm(documentType, field.path)}
+        >
+          Confirm {field.label}
+        </button>
+      )}
     </div>
   )
 }
 
 function statusText(field: ReviewedField): string {
   if (!fieldHasSourceEvidence(field)) {
-    return field.reviewedValue.trim().length > 0 ? 'Entered without source evidence' : 'Unverified'
-  }
-
-  if (field.verification === 'confirmed' && field.modified) {
-    return 'Correction confirmed'
+    return field.reviewedValue.trim().length > 0 ? 'Entered without source evidence' : 'Not confirmed'
   }
 
   if (field.verification === 'confirmed') {
@@ -124,8 +141,8 @@ function statusText(field: ReviewedField): string {
   }
 
   if (field.modified) {
-    return 'Corrected'
+    return 'Changed'
   }
 
-  return 'Unverified'
+  return 'Not confirmed'
 }

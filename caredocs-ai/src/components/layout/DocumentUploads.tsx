@@ -2,7 +2,6 @@ import { templateFor } from '../../features/document-review/template-validation.
 import type { DocumentType } from '../../types/document.ts'
 import { ExtractionPanel } from './ExtractionPanel.tsx'
 import type { DocumentSlot } from './workspace.ts'
-import { usingSample } from './workspace.ts'
 
 interface DocumentUploadsProps {
   letter: DocumentSlot
@@ -87,12 +86,7 @@ export function DocumentUploads({
                 {copy.remove}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => onUseSample(type)}
-              disabled={usingSample(type, slot)}
-            >
+            <button type="button" className="button-secondary" onClick={() => onUseSample(type)}>
               {copy.sample}
             </button>
             {slot.errors.length > 0 ? (

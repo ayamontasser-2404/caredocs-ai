@@ -46,6 +46,28 @@ describe('ReviewPanel findings', () => {
     expect(onFindingStatusChange).toHaveBeenCalledWith('FIND-IDENTITY-NAME', 'reviewed')
   })
 
+  it('turns the finding marker green only after it is reviewed or resolved', () => {
+    const { rerender } = render(panel({ phase: 'ready', review: review([nameFinding()]) }))
+    const openCard = screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')
+
+    expect(openCard?.className).not.toContain('review-finding--approved')
+
+    rerender(panel({ phase: 'ready', review: review([{ ...nameFinding(), status: 'reviewed' }]) }))
+    expect(screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')?.className).toContain(
+      'review-finding--approved',
+    )
+
+    rerender(panel({ phase: 'ready', review: review([{ ...nameFinding(), status: 'resolved' }]) }))
+    expect(screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')?.className).toContain(
+      'review-finding--approved',
+    )
+
+    rerender(panel({ phase: 'ready', review: review([{ ...nameFinding(), status: 'follow-up-required' }]) }))
+    expect(
+      screen.getByRole('heading', { name: 'Abweichender Patientenname' }).closest('article')?.className,
+    ).not.toContain('review-finding--approved')
+  })
+
   it('scrolls the findings section into view when a comparison result arrives', () => {
     const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => undefined)
     const { rerender } = render(panel({ phase: 'comparing' }))

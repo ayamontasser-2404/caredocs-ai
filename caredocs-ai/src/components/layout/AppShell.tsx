@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { reviewChecklist } from '../../data/reviewChecklist.ts'
-import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
-import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
 import { setFindingStatus, setReviewStatus } from '../../features/document-review/review-session.ts'
 import {
   extractPdfContent,
@@ -17,6 +15,7 @@ import { HomePage } from '../pages/HomePage.tsx'
 import { NewReviewPage } from '../pages/NewReviewPage.tsx'
 import { AppHeader } from './AppHeader.tsx'
 import { SideNav } from './SideNav.tsx'
+import { loadSamplePdf } from './sample-pdfs.ts'
 import {
   acceptDocument,
   beginExtraction,
@@ -224,10 +223,25 @@ export function AppShell() {
   }
 
   function handleUseSample(type: DocumentType) {
-    nextExtractionGeneration(type)
-    cancelCompare()
-    const sample = type === 'discharge-letter' ? sampleDischargeLetter : sampleMedicationPlan
-    setWorkspace((current) => acceptDocument(current, type, sample, sample.filename, true))
+    const generationAtClick = extractionGeneration.current[type]
+    void loadSamplePdf(type).then(
+      (file) => {
+        if (extractionGeneration.current[type] !== generationAtClick) {
+          return
+        }
+
+        handleUpload(type, file)
+      },
+      () => {
+        if (extractionGeneration.current[type] !== generationAtClick) {
+          return
+        }
+
+        setWorkspace((current) =>
+          rejectUpload(current, type, ['The sample document could not be loaded.']),
+        )
+      },
+    )
   }
 
   function handleCompare() {

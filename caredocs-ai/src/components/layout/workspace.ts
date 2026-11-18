@@ -1,5 +1,3 @@
-import { sampleDischargeLetter } from '../../data/sampleDischargeLetter.ts'
-import { sampleMedicationPlan } from '../../data/sampleMedicationPlan.ts'
 import type { ComparisonBlockReason } from '../../features/document-review/comparison/prepare-comparison-input.ts'
 import { ComparisonInputError } from '../../features/document-review/comparison/assertions.ts'
 import { prepareComparisonInput } from '../../features/document-review/comparison/prepare-comparison-input.ts'
@@ -82,11 +80,6 @@ export function showPage(state: WorkspaceState, page: AppPage): WorkspaceState {
 
 export function canCompare(state: WorkspaceState): boolean {
   return slotHasDocument(state.letter) && slotHasDocument(state.plan) && state.phase !== 'comparing'
-}
-
-export function usingSample(type: DocumentType, slot: DocumentSlot): boolean {
-  const sample = type === 'discharge-letter' ? sampleDischargeLetter : sampleMedicationPlan
-  return slot.document === sample
 }
 
 export function acceptDocument(

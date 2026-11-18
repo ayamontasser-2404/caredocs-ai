@@ -171,7 +171,7 @@ export function ReviewPanel({
               {visible.length === 0 ? <p>No findings match this filter.</p> : null}
               <ol className="review-findings">
                 {visible.map((presentation) => (
-                  <li key={presentation.finding.id} id={`finding-${presentation.finding.id}`}>
+                  <li className="review-findings__item" key={presentation.finding.id} id={`finding-${presentation.finding.id}`}>
                     <FindingCard
                       presentation={presentation}
                       documents={documents}

@@ -203,7 +203,63 @@
 
 .extraction-panel__page {
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--spacing-16);
+}
+
+.verification-checklist {
+  display: grid;
+  gap: var(--spacing-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verification-checklist__item {
+  position: relative;
+  padding-left: 1rem;
+}
+
+.verification-checklist__item::before {
+  content: '';
+  position: absolute;
+  top: 0.45em;
+  left: 0;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+}
+
+.verification-checklist__item--pending {
+  color: var(--color-error);
+}
+
+.verification-checklist__item--pending::before {
+  background: var(--color-error);
+}
+
+.verification-checklist__item--confirmed {
+  color: var(--color-success);
+}
+
+.verification-checklist__item--confirmed::before {
+  background: var(--color-success);
+}
+
+.verification-field {
+  gap: var(--spacing-8);
+  padding: var(--spacing-16);
+  border: var(--border-width-default) solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.verification-field--pending {
+  border-left-color: var(--color-error);
+}
+
+.verification-field--confirmed {
+  border-left-color: var(--color-success);
 }
 
 .extraction-panel__edit {

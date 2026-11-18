@@ -45,10 +45,13 @@ export function FindingCard({
 }: FindingCardProps) {
   const finding = presentation.finding
   const needsAttention = finding.status === 'open' || finding.status === 'follow-up-required'
+  const approved = finding.status === 'reviewed' || finding.status === 'resolved'
   const StatusIcon = needsAttention ? CircleAlert : CircleCheck
 
   return (
-    <article className={`review-finding review-finding--${finding.severity}`}>
+    <article
+      className={`review-finding review-finding--${finding.severity}${approved ? ' review-finding--approved' : ''}`}
+    >
       <h3 className="review-finding__title" id={`finding-title-${finding.id}`}>
         {finding.title}
       </h3>
